@@ -1,0 +1,52 @@
+{
+  "name": "hesap-takip-sistemi",
+  "version": "1.0.0",
+  "description": "Taşınabilir Hesap Takip Sistemi",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "exe": "electron-builder --win portable",
+    "mac": "electron-builder --mac --universal --publish never"
+  },
+  "keywords": [
+    "accounting",
+    "portable",
+    "electron"
+  ],
+  "author": "Antigravity",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^26.8.1",
+    "vite": "^5.0.0"
+  },
+  "dependencies": {},
+  "build": {
+    "appId": "com.antigravity.hesaptakip",
+    "productName": "Hesap Takip Sistemi",
+    "files": [
+      "index.html",
+      "public/**/*",
+      "src/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "portable"
+    },
+    "mac": {
+      "category": "public.app-category.business",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["universal"]
+        }
+      ]
+    }
+  }
+}

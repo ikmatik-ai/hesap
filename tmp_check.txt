@@ -1,0 +1,10 @@
+﻿his.rCid) return;
+
+                    stats.push({
+                        date: date,
+                        pId: pid,
+                        pName: pName,
+                        cId: cid,
+                        cName: cid ? (this.cache.customers.find(c => c.id === cid)?.name || cName) : cName,
+                        amount: rec.amount,
+                        count: 1 // Each reco

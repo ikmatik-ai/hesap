@@ -1,0 +1,8 @@
+﻿-align:left; padding-left:15px;">M\u00fc\u015fteri</th>
+                                <th style="text-align:left;">Personel</th>
+                                <th>Tarih</th>
+                                <th style="width:100px;">Tutar</th>
+                                <th style="width:60px;">Adet</th>
+                            </tr>
+                        </thead>
+              
