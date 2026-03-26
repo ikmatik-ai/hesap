@@ -4,3 +4,6 @@ dist-mac/
 .env
 .DS_Store
 *.log
+backups/
+*.msi
+tmp_check*

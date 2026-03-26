@@ -13,6 +13,7 @@ class App {
             this.getBusinessDate = () => {
                 const now = new Date();
                 const hours = now.getHours();
+                // Ensure business date doesn't shift until 03:00 AM
                 if (hours < 3) now.setDate(now.getDate() - 1);
                 return this.formatDate(now);
             };
@@ -96,6 +97,12 @@ class App {
             if (!this.cache.definitions.bank) this.cache.definitions.bank = [];
 
             this.cache.personNotes = this.store.get('personNotes', {});
+
+            // Migration: Ensure 'extra' exists in todo
+            if (!this.cache.todo.extra) {
+                this.cache.todo.extra = [];
+                this.store.set('todo', this.cache.todo);
+            }
 
             // Force add 'permissions' and 'actionLogs' to admin if missing (migration)
             if (this.cache.permissions.admin) {
@@ -420,7 +427,7 @@ class App {
                 </nav>
                 <div class="main-layout" id="mainContent"></div>
             </div>
-            <div id="modalOverlay" class="modal-overlay hidden"></div>
+            <div id="modalOverlay" class="modal-overlay hidden" onclick="if(event.target === this) app.closeModal()"></div>
         `;
         const logout = document.getElementById('logoutBtn');
         if (logout) logout.onclick = () => { this.showLogin(); };
@@ -453,7 +460,7 @@ class App {
                     const isOff = isClosed ? (historicalLeaves.some(lid => lid == p.id)) : (p.status === 'izinli' && isWeeklyLeaveMatch);
                     
                     if (!isOff) {
-                        const pRecords = dayRecords.filter(r => r.personnelId === p.id && r.startTime && r.endTime);
+                        const pRecords = dayRecords.filter(r => r.personnelId == p.id && r.startTime && r.endTime);
                         
                         let inSession = false;
                         const currentMin = this.timeToMinutes(currentTime);
@@ -513,11 +520,16 @@ class App {
                 <div>
                     ${isClosed ?
                     (isAdmin ? `<button class="btn-primary" onclick="app.reOpenDay()" style="padding: 6px 15px; background:#f59e0b;">Günü Yeniden Aç</button>` : '<span class="closed-badge">GÜN KAPALI</span>')
-                    : ((isAdmin || this.currentDate >= this.getBusinessDate() || this.currentDate >= this.today) ?
+                    : (this.currentDate === this.getBusinessDate() ?
                         (this.cache.activeShift === this.currentDate ?
-                            `<button class="btn-primary" onclick="app.closeDay()" style="padding: 6px 15px;">Günü Kapat</button>` :
-                            `<button class="btn-primary" onclick="app.startDay()" style="padding: 6px 15px; background:#10b981;">Günü Başlat</button>`)
-                        : '<span class="closed-badge" style="background:#64748b;">EYLEM YOK</span>')
+                            `<button class="btn-primary" onclick="app.closeDay()" style="padding: 6px 15px; background:var(--danger-color)">❌ Günü Kapat</button>` :
+                            `<button class="btn-primary" onclick="app.startDay()" style="padding: 6px 15px; background:#10b981;">🚀 Günü Başlat</button>`)
+                        : (isAdmin ? 
+                            (this.cache.activeShift === this.currentDate ? 
+                                `<button class="btn-primary" onclick="app.closeDay()" style="padding: 6px 15px; background:var(--danger-color)">❌ Günü Kapat</button>` :
+                                `<button class="btn-primary" onclick="app.startDay()" style="padding: 6px 15px; background:#10b981;">🚀 Günü Başlat</button>`)
+                            : '<span class="closed-badge" style="background:#64748b;">EYLEM YOK</span>')
+                    )
                 }
                 </div>
             `;
@@ -534,6 +546,13 @@ class App {
                 </div>
             </section>
             <aside class="side-panel">
+                <div class="todo-section" style="margin-top:20px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                    <h3 style="color:#6366f1;">
+                        <span class="editable-title" onclick="app.editPanelTitle('extra')">${this.cache.panelTitles.extra || 'EXTRA'}</span>
+                        <button class="btn-mini" onclick="app.addTodo('extra')" style="background:var(--accent-color);">+</button>
+                    </h3>
+                    <div id="eList" style="min-height: 50px;"></div>
+                </div>
                 <div class="todo-section" style="margin-top:20px; border-top: 1px solid var(--border-color); padding-top: 15px;">
                     <h3 style="color:#f59e0b;">BEKLEYEN KAYITLAR</h3>
                     <div id="wList" style="min-height: 100px;"></div>
@@ -567,6 +586,7 @@ class App {
         const isAdmin = this.user.role === 'admin';
         const isClosed = this.cache.closedDays.includes(this.currentDate);
         const isActive = this.cache.activeShift === this.currentDate;
+        // CRITICAL: canEdit MUST require explicit isActive (started by user)
         const canEdit = isAdmin || (isActive && !isClosed);
         const dateLeaves = this.cache.leaves[this.currentDate] || [];
 
@@ -765,18 +785,30 @@ class App {
 
     renderFooter(totals, vatTotals, activeP, canEdit) {
         const f = document.getElementById('fRow');
-        const c = this.cache.settings.commission;
+        if (!f) return;
         const totalSum = totals.reduce((a, b) => a + b, 0);
-        
-        // Net Calculation variables
-        const vatRate = this.cache.settings.vat;
-        const reklamRate = this.cache.settings.reklam || 0;
-        
-        const faturaSum = totals.reduce((a, b) => a + (b * vatRate / 100), 0);
-        
-        // Komisyon calculations on Net (Amount - VAT)
-        const commSum = totals.reduce((a, b) => a + ((b - (b * vatRate / 100)) * c / 100), 0);
-        const reklamSum = totals.reduce((a, b) => a + ((b - (b * vatRate / 100)) * reklamRate / 100), 0);
+
+        // Commission Based on Fatura Kalan
+        const vRate = this.cache.settings.vat;
+        const cRate = this.cache.settings.commission;
+        const rRate = this.cache.settings.reklam || 0;
+
+        let totalVat = 0;
+        let totalRek = 0;
+        let totalFatura = 0;
+        let totalComm = 0;
+
+        totals.forEach(t => {
+            const vAmt = t * vRate / 100;
+            const rAmt = t * rRate / 100;
+            const fAmt = t - vAmt - rAmt;
+            const cAmt = fAmt * cRate / 100; // New Rule
+            
+            totalVat += vAmt;
+            totalRek += rAmt;
+            totalFatura += fAmt;
+            totalComm += cAmt;
+        });
 
         f.innerHTML = `
             <tr class="row-total">
@@ -785,24 +817,27 @@ class App {
                 <td style="background:var(--accent-color); color:white; font-weight:bold;">${this.formatNum(totalSum)}</td>
             </tr>
             <tr class="row-vat" style="background:rgba(245, 158, 11, 0.1);">
-                <td class="sticky-col">KDV</td>
-                ${totals.map(t => `<td>${this.formatNum(t * vatRate / 100)}</td>`).join('')}
-                <td style="font-weight:bold; background:var(--bg-input);">${this.formatNum(faturaSum)}</td>
+                <td class="sticky-col">KDV (%${vRate})</td>
+                ${totals.map(t => `<td>${this.formatNum(t * vRate / 100)}</td>`).join('')}
+                <td style="font-weight:bold; background:var(--bg-input);">${this.formatNum(totalVat)}</td>
+            </tr>
+            <tr class="row-reklam" style="background:rgba(239, 68, 68, 0.05);">
+                <td class="sticky-col">REKLAM (%${rRate})</td>
+                ${totals.map(t => `<td>${this.formatNum(t * rRate / 100)}</td>`).join('')}
+                <td style="font-weight:bold; background:var(--bg-input);">${this.formatNum(totalRek)}</td>
             </tr>
             <tr class="row-vat" style="background:rgba(16, 185, 129, 0.1);">
-                <td class="sticky-col">FATURA</td>
-                ${totals.map(t => `<td>${this.formatNum(t - (t * vatRate / 100))}</td>`).join('')}
-                <td style="font-weight:bold; background:var(--bg-input);">${this.formatNum(totalSum - faturaSum)}</td>
+                <td class="sticky-col">FATURA (KALAN)</td>
+                ${totals.map(t => `<td>${this.formatNum(t - (t * vRate / 100) - (t * rRate / 100))}</td>`).join('')}
+                <td style="font-weight:bold; background:var(--bg-input);">${this.formatNum(totalFatura)}</td>
             </tr>
-            <tr class="row-vat">
-                <td class="sticky-col">REKLAM</td>
-                ${totals.map(t => `<td>${this.formatNum((t - (t * vatRate / 100)) * reklamRate / 100)}</td>`).join('')}
-                <td style="font-weight:bold; background:var(--bg-input);">${this.formatNum(reklamSum)}</td>
-            </tr>
-            <tr class="row-commission">
-                <td class="sticky-col">KOMİSYON</td>
-                ${totals.map(t => `<td>${this.formatNum((t - (t * vatRate / 100)) * c / 100)}</td>`).join('')}
-                <td style="font-weight:bold; background:var(--bg-input);">${this.formatNum(commSum)}</td>
+            <tr class="row-commission" style="background:rgba(99, 102, 241, 0.1);">
+                <td class="sticky-col">KOMİSYON (%${cRate})</td>
+                ${totals.map(t => {
+                    const fKalan = t - (t * vRate / 100) - (t * rRate / 100);
+                    return `<td>${this.formatNum(fKalan * cRate / 100)}</td>`;
+                }).join('')}
+                <td style="font-weight:bold; background:var(--bg-input);">${this.formatNum(totalComm)}</td>
             </tr>
             <tr class="row-lists" style="height:24px;">
                 <td class="sticky-col" style="font-size:10px; color:var(--text-dim); text-align:right; padding-right:5px;">LİSTELER</td>
@@ -838,12 +873,34 @@ class App {
         if (!this.cache.lists[this.currentDate]) this.cache.lists[this.currentDate] = {};
         if (!this.cache.lists[this.currentDate][pid]) this.cache.lists[this.currentDate][pid] = { c1: false, c2: false };
         
-        if (idx === 1) this.cache.lists[this.currentDate][pid].c1 = !this.cache.lists[this.currentDate][pid].c1;
-        else this.cache.lists[this.currentDate][pid].c2 = !this.cache.lists[this.currentDate][pid].c2;
+        const state = this.cache.lists[this.currentDate][pid];
+        const key = 'c' + idx;
+        state[key] = !state[key];
         
         this.store.set('lists', this.cache.lists);
-        this.logAction(`Liste Onayı Güncellendi: Personel ID ${pid}, Liste ${idx}, ${!state['c' + idx] ? 'İşaretlendi' : 'Kaldırıldı'}`);
-        this.renderGrid();
+        this.logAction(`Liste Onayı Güncellendi: Personel ID ${pid}, Liste ${idx}, ${state[key] ? 'İşaretlendi' : 'Kaldırıldı'}`);
+        this.updateListCheckUI(pid, idx, state);
+    }
+
+    updateListCheckUI(pid, idx, state) {
+        const row = document.querySelector('.row-lists');
+        if (!row) return;
+        const cells = row.querySelectorAll('td');
+        const activeP = this.cache.personnel
+            .filter(p => p.status === 'active' || p.status === 'izinli')
+            .sort((a, b) => (a.alias || a.name).localeCompare(b.alias || b.name, 'tr-TR'));
+        const pIdx = activeP.findIndex(p => p.id == pid);
+        if (pIdx < 0) return;
+        const cell = cells[pIdx + 1]; // +1 çünkü ilk td sticky-col
+        if (!cell) return;
+        const checks = cell.querySelectorAll('.list-check');
+        const target = checks[idx - 1]; // idx 1 veya 2
+        if (!target) return;
+        if (state['c' + idx]) {
+            target.classList.add('active');
+        } else {
+            target.classList.remove('active');
+        }
     }
 
     renderPersonnel() {
@@ -958,13 +1015,32 @@ class App {
         const activeCount = this.cache.customers.filter(c => c.status === 'active').length;
         const passiveCount = this.cache.customers.filter(c => c.status === 'pasif').length;
 
-        // Calculate total balance from all customer ledgers
+        // Calculate total balance from all customer ledgers and daily records
         let totalBal = 0;
+        const customerRecordCharges = {};
+        Object.keys(this.cache.records).forEach(date => {
+            (this.cache.records[date] || []).forEach(rec => {
+                if (!rec.amount) return;
+                const cid = rec.customerId;
+                if (cid) {
+                    customerRecordCharges[cid] = (customerRecordCharges[cid] || 0) + rec.amount;
+                } else if (rec.name) {
+                    const lowName = rec.name.toLocaleLowerCase('tr-TR');
+                    const c = this.cache.customers.find(cx => cx.name.toLocaleLowerCase('tr-TR') === lowName);
+                    if (c) customerRecordCharges[c.id] = (customerRecordCharges[c.id] || 0) + rec.amount;
+                }
+            });
+        });
+
+        const customerBalances = {};
         this.cache.customers.forEach(c => {
+            let cBal = customerRecordCharges[c.id] || 0;
             const ledger = this.cache.customerLedgers[c.id] || [];
             const charges = ledger.filter(l => l.type === 'charge').reduce((s, l) => s + l.amount, 0);
             const payments = ledger.filter(l => l.type === 'payment').reduce((s, l) => s + l.amount, 0);
-            totalBal += (charges - payments);
+            const finalBal = (cBal + charges - payments);
+            customerBalances[c.id] = finalBal;
+            totalBal += finalBal;
         });
 
         // Get last record for each customer from daily records
@@ -1013,7 +1089,7 @@ class App {
                             <tr>
                                 <th style="text-align:left; padding-left:15px;">M\u00fc\u015fteri Ad\u0131</th>
                                 <th>Telefon</th>
-                                <th>\u0130\u015flem \u00dccreti</th>
+                                <th>Net Bakiye (T\u00fcm)</th>
                                 <th>\u0130\u015flem Tarihi</th>
                                 <th>\u0130lgili Personel (Takma Ad)</th>
                                 <th>Banka</th>
@@ -1032,13 +1108,15 @@ class App {
                                 <tr>
                                     <td style="text-align:left; padding-left:15px; font-weight:500;">${c.name}</td>
                                     <td>${c.phone || '-'}</td>
-                                    <td style="font-weight:600; color:var(--accent-color);">${lastRec ? this.formatNum(lastRec.amount) + ' TL' : '-'}</td>
+                                    <td style="font-weight:700; color:${customerBalances[c.id] > 0 ? 'var(--accent-color)' : customerBalances[c.id] < 0 ? 'var(--danger-color)' : 'var(--text-main)'};">
+                                        ${this.formatNum(customerBalances[c.id])} TL
+                                    </td>
                                     <td>${lastRec ? lastRec.date.split('-').reverse().join('.') : '-'}</td>
                                     <td>${pName}</td>
                                     <td>${lastRec ? (lastRec.bank || '-') : '-'}</td>
                                     <td>
                                         <button class="btn-mini" onclick="app.showCustomerLedger('${c.id}')">Cari</button>
-                                        <button class="btn-mini" onclick="app.showCustomerModal('${c.id}')">D\u00fczenle</button>
+                                        <button class="btn-mini" onclick="app.showCustomerModal('${c.id}')">Düzenle</button>
                                     </td>
                                 </tr>
                             `;
@@ -1091,6 +1169,16 @@ class App {
                             </select>
                         </div>
                     </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Başlangıç Saati</label>
+                            <input type="time" id="cst" value="${c?.startTime || ''}">
+                        </div>
+                        <div class="form-group">
+                            <label>Bitiş Saati</label>
+                            <input type="time" id="cet" value="${c?.endTime || ''}">
+                        </div>
+                    </div>
                     <div class="form-group">
                         <label>Adres</label>
                         <input id="ca" value="${c?.address || ''}" placeholder="Adres bilgisi">
@@ -1100,7 +1188,7 @@ class App {
                         <input id="cno" value="${c?.notes || ''}" placeholder="Ek notlar...">
                     </div>
                     <div class="modal-actions">
-                        <button type="button" class="btn-text" onclick="app.closeModal()">Iptal</button>
+                        <button type="button" class="btn-text" onclick="app.closeModal()">İptal</button>
                         <button type="submit" class="btn-primary">Kaydet</button>
                     </div>
                 </form>
@@ -1112,6 +1200,8 @@ class App {
                 id: id || Date.now().toString(),
                 name: document.getElementById('cn').value.trim(),
                 phone: document.getElementById('cp').value.trim(),
+                startTime: document.getElementById('cst').value,
+                endTime: document.getElementById('cet').value,
                 address: document.getElementById('ca').value.trim(),
                 notes: document.getElementById('cno').value.trim(),
                 status: document.getElementById('cs').value
@@ -1148,6 +1238,8 @@ class App {
                         bank: rec.bank || '-',
                         desc: '\u0130\u015flem: ' + pName + (rec.desc ? ' - ' + rec.desc : ''),
                         user: rec.user || 'Sistem',
+                        startTime: rec.startTime || '',
+                        endTime: rec.endTime || '',
                         auto: true
                     });
                 }
@@ -1170,10 +1262,13 @@ class App {
         const ov = document.getElementById('modalOverlay'); ov.classList.remove('hidden');
         ov.innerHTML = `
             <div class="modal-content" style="width:750px; max-height:85vh; overflow-y:auto;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; background:var(--bg-nav); padding:15px; border-radius:10px; border:1px solid var(--border-color);">
-                    <div>
-                        <h2 style="margin:0; font-size:18px;">M\u00fc\u015fteri Cari - ${customer.name}</h2>
-                        <small style="color:var(--text-dim);">${customer.phone || ''} ${customer.address ? '| ' + customer.address : ''}</small>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; background:var(--bg-nav); padding:15px; border-radius:10px; border:1px solid var(--border-color); position:relative;">
+                    <div style="display:flex; align-items:center; gap:15px;">
+                        <div>
+                            <h2 style="margin:0; font-size:18px;">M\u00fc\u015fteri Cari - ${customer.name}</h2>
+                            <small style="color:var(--text-dim);">${customer.phone || ''} ${customer.address ? '| ' + customer.address : ''}</small>
+                        </div>
+                        <button class="btn-primary" onclick="app.closeModal()" style="background:var(--danger-color); padding:6px 15px; font-size:12px; height:32px;">Kapat</button>
                     </div>
                     <div style="display:flex; gap:20px; text-align:right;">
                         <div>
@@ -1204,19 +1299,23 @@ class App {
                     <thead>
                         <tr>
                             <th>Tarih</th>
-                            <th style="text-align:left; padding-left:10px;">A\u00e7\u0131klama</th>
+                            <th>Başla</th>
+                            <th>Bitiş</th>
+                            <th style="text-align:left; padding-left:10px;">Açıklama</th>
                             <th>Banka</th>
-                            <th>T\u00fcr</th>
+                            <th>Tür</th>
                             <th>Tutar</th>
                             <th>Yapan</th>
-                            <th style="width:60px;">\u0130\u015flem</th>
+                            <th style="width:60px;">İşlem</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${filteredEntries.map(l => `
                             <tr style="${l.auto ? 'opacity:0.8;' : ''}">
                                 <td>${l.date.split('-').reverse().join('.')}</td>
-                                <td style="text-align:left; padding-left:10px; font-size:12px;">${l.desc || '-'}${l.auto ? ' <span style="font-size:9px; color:var(--text-dim);">(Oto)</span>' : ''}</td>
+                                <td style="font-weight:600; color:var(--primary-color);">${l.startTime || '-'}</td>
+                                <td style="font-weight:600; color:var(--primary-color);">${l.endTime || '-'}</td>
+                                <td style="text-align:left; padding-left:10px; font-size:12px; white-space: normal; word-break: break-word;">${l.desc || '-'}${l.auto ? ' <span style="font-size:9px; color:var(--text-dim);">(Oto)</span>' : ''}</td>
                                 <td style="font-size:12px;">${l.bank || '-'}</td>
                                 <td><span class="badge-${l.type === 'charge' ? 'active' : 'pasif'}" style="font-size:9px;">${l.type === 'charge' ? 'BOR\u00c7' : '\u00d6DEME'}</span></td>
                                 <td style="font-weight:bold; color:${l.type === 'charge' ? 'var(--accent-color)' : 'var(--danger-color)'};">${l.type === 'charge' ? '+' : '-'}${this.formatNum(l.amount)} TL</td>
@@ -1314,10 +1413,16 @@ class App {
         ov.innerHTML = `
             <div class="modal-content" style="width:950px; max-height:90vh; overflow-y:auto;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; border-bottom:2px solid var(--border-color); padding-bottom:15px;">
-                    <div>
-                        <h2 style="margin:0; color:var(--primary-color);">Geli\u015fmi\u015f Hizmet Raporu Detay\u0131</h2>
+                    <div style="flex:1;">
+                        <h2 style="margin:0; color:var(--primary-color);">Hizmet Raporu</h2>
                         <div style="font-size:12px; color:var(--text-dim);">${this.rStart.split('-').reverse().join('.')} - ${this.rEnd.split('-').reverse().join('.')}</div>
                     </div>
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <button type="button" class="btn-primary" style="background:#10b981; padding:6px 15px; font-size:12px;" onclick="window.print()">\ud83d\udda8 Yazd\u0131r / PDF Kaydet</button>
+                        <button type="button" class="btn-text" style="padding:6px 15px; font-size:12px;" onclick="app.closeModal()">Kapat</button>
+                    </div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; background:var(--bg-card); padding:10px; border-radius:8px; border:1px solid var(--border-color);">
                     <div style="display:flex; gap:10px; align-items:center;">
                         <input type="date" id="rs_rep" value="${this.rStart}" style="width:125px; padding:5px; font-size:11px;">
                         <span style="color:var(--text-dim)">\u27a4</span>
@@ -1453,10 +1558,7 @@ class App {
                     `;
                 })() : ''}
 
-                <div class="modal-actions" style="margin-top:20px; border-top:1px solid var(--border-color); padding-top:15px;">
-                    <button type="button" class="btn-text" onclick="app.closeModal()">Kapat</button>
-                    <button type="button" class="btn-primary" style="background:#10b981;" onclick="window.print()">\ud83d\udda8 Yazd\u0131r / PDF Kaydet</button>
-                </div>
+                <div style="height:20px;"></div>
             </div>
         `;
     }
@@ -2173,9 +2275,9 @@ class App {
                         this.store.set('records', data.records);
                         this.store.set('settings', data.settings || this.cache.settings);
                         this.store.set('transactions', data.transactions || []);
-                        this.store.set('todo', data.todo || { pending: [], remaining: [] });
+                        this.store.set('todo', data.todo || { pending: [], extra: [], remaining: [] });
                         this.store.set('closedDays', data.closedDays || []);
-                        this.store.set('panelTitles', data.panelTitles || { pending: 'Müşteri Bekleyenler', remaining: 'Müşteri Kalanlar' });
+                        this.store.set('panelTitles', data.panelTitles || { pending: 'Müşteri Bekleyenler', extra: 'Extra Panel', remaining: 'Müşteri Kalanlar' });
 
                         alert('Veriler başarıyla yüklendi! Sistem yeniden başlatılıyor...');
                         location.reload();
@@ -2190,8 +2292,13 @@ class App {
     }
 
     editPanelTitle(type) {
+        let titleLabel = '';
+        if (type === 'pending') titleLabel = 'Bekleyen Kayıtlar';
+        else if (type === 'extra') titleLabel = 'Extra';
+        else titleLabel = 'Kalanlar';
+
         this.showInputModal(
-            `${type === 'pending' ? 'Birinci' : 'İkinci'} Panel Başlığı`,
+            `${titleLabel} Panel Başlığı`,
             this.cache.panelTitles[type],
             (newTitle) => {
                 this.cache.panelTitles[type] = newTitle;
@@ -2388,9 +2495,9 @@ class App {
 
     renderTodos() {
         this.renderWaitingRecords();
-        ['remaining'].forEach(t => {
+        ['extra', 'remaining'].forEach(t => {
             const el = document.getElementById(t[0] + 'List');
-            if (el) el.innerHTML = this.cache.todo[t].map((x, i) => `
+            if (el) el.innerHTML = (this.cache.todo[t] || []).map((x, i) => `
                 <div class="todo-item">
                     <div class="todo-controls-left">
                         <div style="display:flex; flex-direction:column; width:14px; height:100%; justify-content:center;">
@@ -2479,8 +2586,30 @@ class App {
                         <div class="form-group">
                             <label>Tutar</label>
                             <input type="number" step="0.01" id="ra" value="${rec?.amount || ''}" required>
-                            <div id="netPreview" style="font-size:11px; color:var(--text-dim); margin-top:4px;">
-                                Net Tutar (KDV Hari\u00e7): ${rec ? this.formatNum(rec.amount - (rec.amount * (this.cache.settings.vat + (this.cache.settings.reklam || 0)) / 100)) : '0'} TL
+                            <div id="netPreview" style="font-size:11px; color:var(--text-dim); margin-top:8px; background:rgba(0,0,0,0.02); padding:8px; border-radius:6px; border:1px dashed var(--border-color); min-height:85px;">
+                                ${(() => {
+                                    const val = rec?.amount || 0;
+                                    const vRate = this.cache.settings.vat;
+                                    const cRate = this.cache.settings.commission;
+                                    const rRate = this.cache.settings.reklam || 0;
+                                    
+                                    const vAmt = val * vRate / 100;
+                                    const rAmt = val * rRate / 100;
+                                    const net = val - vAmt - rAmt;
+                                    const comm = net * cRate / 100;
+
+                                    return `
+                                        <div style="display:flex; justify-content:space-between;"><span>Br\u00fct:</span> <span>${this.formatNum(val)} TL</span></div>
+                                        <div style="display:flex; justify-content:space-between; color:#ef4444;"><span>KDV (%${vRate}):</span> <span>-${this.formatNum(vAmt)} TL</span></div>
+                                        <div style="display:flex; justify-content:space-between; color:#f59e0b;"><span>Reklam (%${rRate}):</span> <span>-${this.formatNum(rAmt)} TL</span></div>
+                                        <div style="display:flex; justify-content:space-between; font-weight:bold; color:var(--accent-color); margin-top:5px; border-top:1px solid var(--border-color); padding-top:5px;">
+                                            <span>FATURA (KALAN):</span> <span>${this.formatNum(net)} TL</span>
+                                        </div>
+                                        <div style="display:flex; justify-content:space-between; color:#6366f1; margin-top:3px;">
+                                            <span>Komisyon (%${cRate}):</span> <span>${this.formatNum(comm)} TL</span>
+                                        </div>
+                                    `;
+                                })()}
                             </div>
                         </div>
                     </div>
@@ -2522,8 +2651,26 @@ class App {
         const np = document.getElementById('netPreview');
         raIn.oninput = () => {
             const val = parseFloat(raIn.value) || 0;
-            const net = val - (val * (this.cache.settings.vat + (this.cache.settings.reklam || 0)) / 100);
-            np.innerText = `Net Tutar (KDV Hari\u00e7): ${this.formatNum(net)} TL`;
+            const vRate = this.cache.settings.vat;
+            const cRate = this.cache.settings.commission;
+            const rRate = this.cache.settings.reklam || 0;
+            
+            const vAmt = val * vRate / 100;
+            const rAmt = val * rRate / 100;
+            const net = val - vAmt - rAmt;
+            const comm = net * cRate / 100;
+            
+            np.innerHTML = `
+                <div style="display:flex; justify-content:space-between;"><span>Br\u00fct:</span> <span>${this.formatNum(val)} TL</span></div>
+                <div style="display:flex; justify-content:space-between; color:#ef4444;"><span>KDV (%${vRate}):</span> <span>-${this.formatNum(vAmt)} TL</span></div>
+                <div style="display:flex; justify-content:space-between; color:#f59e0b;"><span>Reklam (%${rRate}):</span> <span>-${this.formatNum(rAmt)} TL</span></div>
+                <div style="display:flex; justify-content:space-between; font-weight:bold; color:var(--accent-color); margin-top:5px; border-top:1px solid var(--border-color); padding-top:5px;">
+                    <span>FATURA (KALAN):</span> <span>${this.formatNum(net)} TL</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; color:#6366f1; margin-top:3px;">
+                    <span>Komisyon (%${cRate}):</span> <span>${this.formatNum(comm)} TL</span>
+                </div>
+            `;
         };
 
         document.getElementById('rForm').onsubmit = (e) => {
@@ -2657,7 +2804,7 @@ class App {
             if (!name.trim()) return;
             const upName = name.trim().toLocaleUpperCase('tr-TR');
             const id = Date.now().toString();
-            this.cache.customers.push({ id, name: upName, phone: '', address: '', notes: '', status: 'active' });
+            this.cache.customers.push({ id, name: upName, phone: '', startTime: '', endTime: '', address: '', notes: '', status: 'active' });
             this.store.set('customers', this.cache.customers);
             const rnInput = document.getElementById('rn');
             if (rnInput) {
