@@ -457,7 +457,7 @@ class App {
                 const statusCell = document.getElementById(`statusCell_${p.id}`);
                 if (statusCell) {
                     const isWeeklyLeaveMatch = p.weeklyLeaves && p.weeklyLeaves.includes(currentDayName);
-                    const isOff = isClosed ? (historicalLeaves.some(lid => lid == p.id)) : (p.status === 'izinli' && isWeeklyLeaveMatch);
+                    const isOff = isClosed ? (historicalLeaves.some(lid => lid == p.id) || isWeeklyLeaveMatch) : (p.status === 'izinli' || isWeeklyLeaveMatch);
                     
                     if (!isOff) {
                         const pRecords = dayRecords.filter(r => r.personnelId == p.id && r.startTime && r.endTime);
@@ -615,7 +615,7 @@ class App {
                     const isWeeklyLeaveMatch = p.weeklyLeaves && p.weeklyLeaves.includes(currentDayName);
                     
                     const isOff = isClosed 
-                        ? (historicalLeaves.some(lid => lid == p.id)) 
+                        ? (historicalLeaves.some(lid => lid == p.id) || isWeeklyLeaveMatch) 
                         : (p.status === 'izinli' || isWeeklyLeaveMatch);
 
                     const bgColor = isOff ? '#cbd5e1' : '#ffffff';
@@ -679,7 +679,7 @@ class App {
                     const isWeeklyLeaveMatch = p.weeklyLeaves && p.weeklyLeaves.includes(currentDayName);
 
                     const isOff = isClosed 
-                        ? (historicalLeaves.some(lid => lid == p.id)) 
+                        ? (historicalLeaves.some(lid => lid == p.id) || isWeeklyLeaveMatch) 
                         : (p.status === 'izinli' || isWeeklyLeaveMatch);
                     const hasNote = this.cache.personNotes[p.id];
                     const color = isOff ? '#cbd5e1' : (p.color || '#ffffff');
@@ -717,7 +717,7 @@ class App {
                 const rec = (this.cache.records[this.currentDate] || []).find(r => r.personnelId == p.id && r.rowIndex === i);
                 
                 const isOff = isClosed 
-                    ? (historicalLeaves.some(lid => lid == p.id)) 
+                    ? (historicalLeaves.some(lid => lid == p.id) || isWeeklyLeaveMatch) 
                     : (p.status === 'izinli' || isWeeklyLeaveMatch);
                 
                 if (isOff) td.style.backgroundColor = '#f1f5f9';
