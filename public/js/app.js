@@ -546,23 +546,23 @@ class App {
                 </div>
             </section>
             <aside class="side-panel">
-                <div class="todo-section" style="margin-top:20px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                <div class="todo-section" style="margin-top:10px; border-top: 1px solid var(--border-color); padding-top: 10px;">
                     <h3 style="color:#6366f1;">
                         <span class="editable-title" onclick="app.editPanelTitle('extra')">${this.cache.panelTitles.extra || 'EXTRA'}</span>
                         <button class="btn-mini" onclick="app.addTodo('extra')" style="background:var(--accent-color);">+</button>
                     </h3>
-                    <div id="eList" style="min-height: 50px;"></div>
+                    <div id="eList" class="scrollable-list" style="max-height: 150px;"></div>
                 </div>
-                <div class="todo-section" style="margin-top:20px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                <div class="todo-section" style="margin-top:10px; border-top: 1px solid var(--border-color); padding-top: 10px;">
                     <h3 style="color:#f59e0b;">BEKLEYEN KAYITLAR</h3>
-                    <div id="wList" style="min-height: 100px; max-height:480px; overflow-y:auto; overflow-x:hidden; background:rgba(0,0,0,0.01); border-radius:8px; padding:5px;"></div>
+                    <div id="wList" class="scrollable-list" style="max-height: 280px;"></div>
                 </div>
-                <div class="todo-section" style="margin-top:20px">
+                <div class="todo-section" style="margin-top:10px; border-top: 1px solid var(--border-color); padding-top: 10px;">
                     <h3>
                         <span class="editable-title" onclick="app.editPanelTitle('remaining')">${this.cache.panelTitles.remaining}</span>
                         <button class="btn-mini" onclick="app.addTodo('remaining')">+</button>
                     </h3>
-                    <div id="rList"></div>
+                    <div id="rList" class="scrollable-list" style="max-height: 250px;"></div>
                 </div>
             </aside>
         `;
@@ -2169,7 +2169,16 @@ class App {
     // --- HELPERS ---
     changeDate(n) { const d = new Date(this.currentDate); d.setDate(d.getDate() + n); this.currentDate = this.formatDate(d); this.renderMain(); }
     hexToRgb(h) { const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(h); return r ? `${parseInt(r[1], 16)},${parseInt(r[2], 16)},${parseInt(r[3], 16)}` : '79,70,229'; }
-    startDay() { if (confirm(`${this.currentDate} tarihli günü başlatmak istiyor musunuz?`)) { this.cache.activeShift = this.currentDate; this.store.set('activeShift', this.cache.activeShift); this.logAction(`İş Günü Başlatıldı: ${this.currentDate}`); this.renderMain(); } }
+    startDay() { 
+        if (confirm(`${this.currentDate} tarihli günü başlatmak istiyor musunuz?\n\nNot: Bu işlem 'EXTRA' alanını sıfırlayacaktır.`)) { 
+            this.cache.todo.extra = [];
+            this.store.set('todo', this.cache.todo);
+            this.cache.activeShift = this.currentDate; 
+            this.store.set('activeShift', this.cache.activeShift); 
+            this.logAction(`İş Günü Başlatıldı: ${this.currentDate} (Extra sıfırlandı)`); 
+            this.renderMain(); 
+        } 
+    }
     closeDay() {
         if (confirm('Günü kapatmak istediğinize emin misiniz? Kapattığınızda bu günün cirosu otomatik olarak Hesap Detay sayfasına işlenecektir.')) {
             const dayRecords = this.cache.records[this.currentDate] || [];
@@ -2449,20 +2458,38 @@ class App {
             const p = r.personnelId ? this.cache.personnel.find(px => px.id == r.personnelId) : null;
             const pBadge = p ? `<div style="font-size:9px; color:#6366f1; font-weight:bold; background:rgba(99, 102, 241, 0.1); padding:1px 4px; border-radius:3px; border:1px solid rgba(99, 102, 241, 0.1); white-space:nowrap;">👤 ${p.alias || p.name}</div>` : '';
             return `
-            <div class="todo-item" draggable="true" ondragstart="app.onWaitingDragStart(event, ${i})" onclick="app.editWaitingRecord(${i})" style="cursor:move; flex-direction:column; gap:4px; height:auto; padding:6px 8px; background:rgba(245, 158, 11, 0.05); border-color:rgba(245, 158, 11, 0.1); position:relative; min-height:45px; border-radius:6px; margin-bottom:4px;">
-                <div style="display:flex; align-items:center; justify-content:space-between; width:100%; gap:8px;">
-                    <div style="font-weight:700; font-size:11px; color:#1e293b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:110px;">${r.name}</div>
-                    <div style="display:flex; align-items:center; gap:5px;">
-                        <span style="font-size:10px; color:#b45309; font-weight:700;">${this.formatNum(r.amount)} TL</span>
-                        ${pBadge}
-                        <button class="btn-item-del" onclick="event.stopPropagation(); app.remWaitingRecord(${i})" style="padding:0 2px; font-size:14px; background:transparent; border:none; opacity:0.6;">\u00d7</button>
+            <div class="todo-item" draggable="true" ondragstart="app.onWaitingDragStart(event, ${i})" onclick="app.editWaitingRecord(${i})" style="cursor:move; gap:4px; height:auto; padding:0; background:rgba(245, 158, 11, 0.05); border-color:rgba(245, 158, 11, 0.1); position:relative; min-height:45px; border-radius:6px; margin-bottom:4px; overflow:hidden;">
+                <div class="todo-controls-left" style="width:24px; padding:0 2px;">
+                    <div style="display:flex; flex-direction:column; width:100%; height:100%; justify-content:center; gap:2px;">
+                        <button class="btn-move" onclick="event.stopPropagation(); app.moveWaitingRecord(${i}, -1)" ${i === 0 ? 'disabled style="opacity:0.05"' : ''}>▲</button>
+                        <button class="btn-move" onclick="event.stopPropagation(); app.moveWaitingRecord(${i}, 1)" ${i === this.cache.waitingRecords.length - 1 ? 'disabled style="opacity:0.05"' : ''}>▼</button>
                     </div>
                 </div>
-                <div style="font-size:10px; color:#64748b; width:100%; line-height:1.2; white-space:normal; overflow:hidden; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical;" title="${r.desc || ''}">
-                    ${r.desc || ''}
+                <div style="flex:1; display:flex; flex-direction:column; gap:4px; padding:6px 8px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; width:100%; gap:8px;">
+                        <div style="font-weight:700; font-size:11px; color:#1e293b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:110px;">${r.name}</div>
+                        <div style="display:flex; align-items:center; gap:5px;">
+                            <span style="font-size:10px; color:#b45309; font-weight:700;">${this.formatNum(r.amount)} TL</span>
+                            ${pBadge}
+                            <button class="btn-item-del" onclick="event.stopPropagation(); app.remWaitingRecord(${i})" style="padding:0 2px; font-size:14px; background:transparent; border:none; opacity:0.6;">\u00d7</button>
+                        </div>
+                    </div>
+                    <div style="font-size:10px; color:#64748b; width:100%; line-height:1.2; white-space:normal; overflow:hidden; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical;" title="${r.desc || ''}">
+                        ${r.desc || ''}
+                    </div>
                 </div>
             </div>`;
         }).join('') || '<div style="color:#475569; font-size:10px; padding:5px;">Bekleyen kay\u0131t yok.</div>';
+    }
+
+    moveWaitingRecord(index, dir) {
+        const list = this.cache.waitingRecords;
+        const target = index + dir;
+        if (target < 0 || target >= list.length) return;
+
+        [list[index], list[target]] = [list[target], list[index]];
+        this.store.set('waitingRecords', this.cache.waitingRecords);
+        this.renderWaitingRecords();
     }
 
     editWaitingRecord(i) {

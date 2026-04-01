@@ -230,13 +230,25 @@ body {
 
 
 
-#wList {
-    flex: 1;
+.scrollable-list {
     overflow-y: auto;
+    overflow-x: hidden;
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding-bottom: 15px;
+    gap: 4px;
+    padding: 5px;
+    background: rgba(0, 0, 0, 0.02);
+    border-radius: 8px;
+    border: 1px solid rgba(0, 0, 0, 0.03);
+}
+
+/* Scrollbar styles for side lists */
+.scrollable-list::-webkit-scrollbar {
+    width: 4px;
+}
+.scrollable-list::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
 }
 
 .excel-cell.drag-over {
