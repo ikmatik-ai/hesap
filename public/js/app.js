@@ -706,7 +706,8 @@ class App {
             const tr = document.createElement('tr');
             tr.innerHTML = `<td class="sticky-col row-label">${(i + 1).toString().padStart(2, '0')}</td>`;
             activeP.forEach((p, idx) => {
-                const currentD = new Date(this.currentDate);
+                const [cy, cm, cd] = this.currentDate.split('-').map(Number);
+                const currentD = new Date(cy, cm - 1, cd);
                 const dayNamesShort = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
                 const currentDayName = dayNamesShort[currentD.getDay()];
                 const isWeeklyLeaveMatch = p.weeklyLeaves && p.weeklyLeaves.includes(currentDayName);
@@ -2206,8 +2207,14 @@ class App {
                     this.logAction(`G\u00fcnl\u00fck KDV+Reklam Aktar\u0131ld\u0131: ${this.currentDate} (${this.formatNum(vatTotal)} TL)`);
                 }
 
-                // Snapshot Leaves for history
-                const leaveIds = this.cache.personnel.filter(p => p.status === 'izinli').map(p => p.id);
+                // Snapshot Leaves for history (izinli personnel + active personnel whose weekly leave matches today)
+                const [ly, lm, ld] = this.currentDate.split('-').map(Number);
+                const closeDayObj = new Date(ly, lm - 1, ld);
+                const closeDayNames = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
+                const closeDayName = closeDayNames[closeDayObj.getDay()];
+                const leaveIds = this.cache.personnel.filter(p => 
+                    p.status === 'izinli' || (p.weeklyLeaves && p.weeklyLeaves.includes(closeDayName))
+                ).map(p => p.id);
                 this.cache.leaves[this.currentDate] = leaveIds;
                 this.store.set('leaves', this.cache.leaves);
 
