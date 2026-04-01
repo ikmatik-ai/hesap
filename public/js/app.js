@@ -451,7 +451,8 @@ class App {
             const isClosed = this.cache.closedDays.includes(this.currentDate);
             const historicalLeaves = this.cache.leaves[this.currentDate] || [];
             const dayNamesShort = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
-            const currentDayName = dayNamesShort[now.getDay()];
+            const [by, bm, bd] = this.currentDate.split('-').map(Number);
+            const currentDayName = dayNamesShort[new Date(by, bm - 1, bd).getDay()];
 
             this.cache.personnel.forEach(p => {
                 const statusCell = document.getElementById(`statusCell_${p.id}`);
