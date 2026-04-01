@@ -616,7 +616,7 @@ class App {
                     
                     const isOff = isClosed 
                         ? (historicalLeaves.some(lid => lid == p.id)) 
-                        : (p.status === 'izinli' && isWeeklyLeaveMatch);
+                        : (p.status === 'izinli' || isWeeklyLeaveMatch);
 
                     const bgColor = isOff ? '#cbd5e1' : '#ffffff';
                     
@@ -680,7 +680,7 @@ class App {
 
                     const isOff = isClosed 
                         ? (historicalLeaves.some(lid => lid == p.id)) 
-                        : (p.status === 'izinli' && isWeeklyLeaveMatch);
+                        : (p.status === 'izinli' || isWeeklyLeaveMatch);
                     const hasNote = this.cache.personNotes[p.id];
                     const color = isOff ? '#cbd5e1' : (p.color || '#ffffff');
                     const displayName = p.alias || p.name;
@@ -717,7 +717,7 @@ class App {
                 
                 const isOff = isClosed 
                     ? (historicalLeaves.some(lid => lid == p.id)) 
-                    : (p.status === 'izinli' && isWeeklyLeaveMatch);
+                    : (p.status === 'izinli' || isWeeklyLeaveMatch);
                 
                 if (isOff) td.style.backgroundColor = '#f1f5f9';
 
