@@ -556,7 +556,7 @@ class App {
                 </div>
                 <div class="todo-section" style="margin-top:10px; border-top: 1px solid var(--border-color); padding-top: 10px;">
                     <h3 style="color:#f59e0b;">BEKLEYEN KAYITLAR</h3>
-                    <div id="wList" class="scrollable-list" style="max-height: 280px;"></div>
+                    <div id="wList" class="scrollable-list" style="max-height: 750px;"></div>
                 </div>
                 <div class="todo-section" style="margin-top:10px; border-top: 1px solid var(--border-color); padding-top: 10px;">
                     <h3>
@@ -1763,7 +1763,7 @@ class App {
                         <p style="color:#f59e0b">${this.formatNum(totalVat)} TL</p>
                     </div>
                     <div class="stat-card" style="border-bottom:4px solid #8b5cf6">
-                        <h3>Reklam Komisyon (%${commRate})</h3>
+                        <h3>Komisyon (%${commRate})</h3>
                         <p style="color:#8b5cf6">${this.formatNum(totalComm)} TL</p>
                     </div>
                     <div class="stat-card" style="border-bottom:4px solid #06b6d4">
@@ -2464,7 +2464,13 @@ class App {
         if (!el) return;
         el.innerHTML = this.cache.waitingRecords.map((r, i) => {
             const p = r.personnelId ? this.cache.personnel.find(px => px.id == r.personnelId) : null;
-            const pBadge = p ? `<div style="font-size:9px; color:#6366f1; font-weight:bold; background:rgba(99, 102, 241, 0.1); padding:1px 4px; border-radius:3px; border:1px solid rgba(99, 102, 241, 0.1); white-space:nowrap;">👤 ${p.alias || p.name}</div>` : '';
+            let pBadge = '';
+            if (p) {
+                pBadge = `<div style="font-size:9px; color:#6366f1; font-weight:bold; background:rgba(99, 102, 241, 0.1); padding:1px 4px; border-radius:3px; border:1px solid rgba(99, 102, 241, 0.1); white-space:nowrap;">👤 ${p.alias || p.name}</div>`;
+            } else if (!r.personnelId || r._explicitNoPerson) {
+                pBadge = `<div style="font-size:9px; color:#ef4444; font-weight:bold; background:rgba(239, 68, 68, 0.1); padding:1px 4px; border-radius:3px; border:1px solid rgba(239, 68, 68, 0.1); white-space:nowrap;">👤 Personel Seçilmedi</div>`;
+            }
+            
             return `
             <div class="todo-item" draggable="true" ondragstart="app.onWaitingDragStart(event, ${i})" onclick="app.editWaitingRecord(${i})" style="cursor:move; gap:4px; height:auto; padding:0; background:rgba(245, 158, 11, 0.05); border-color:rgba(245, 158, 11, 0.1); position:relative; min-height:45px; border-radius:6px; margin-bottom:4px; overflow:hidden;">
                 <div class="todo-controls-left" style="width:24px; padding:0 2px;">
@@ -2620,10 +2626,16 @@ class App {
                 <h2>Kay\u0131t Formu</h2>
                 <form id="rForm">
                     <div style="margin-bottom:15px; background:rgba(245, 158, 11, 0.1); padding:10px; border-radius:6px; border:1px solid rgba(245, 158, 11, 0.3);">
-                        <label style="display:flex; align-items:center; gap:10px; cursor:pointer; color:#f59e0b; font-weight:bold;">
-                            <input type="checkbox" id="isWaiting" ${rec?._isWaiting ? 'checked' : ''} style="width:18px; height:18px;">
-                            BEKLEYENLERE EKLE
-                        </label>
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <label style="display:flex; align-items:center; gap:10px; cursor:pointer; color:#f59e0b; font-weight:bold;">
+                                <input type="checkbox" id="isWaiting" ${rec?._isWaiting ? 'checked' : ''} style="width:18px; height:18px;" onchange="document.getElementById('noPersonContainer').style.display = this.checked ? 'flex' : 'none'">
+                                BEKLEYENLERE EKLE
+                            </label>
+                            <div id="noPersonContainer" style="display:${rec?._isWaiting ? 'flex' : 'none'}; align-items:center; gap:5px;">
+                                <input type="checkbox" id="isWaitingNoPerson" ${rec?._explicitNoPerson || (rec?._isWaiting && !rec?.personnelId) ? 'checked' : ''} style="width:16px; height:16px;">
+                                <label for="isWaitingNoPerson" style="font-size:12px; color:var(--text-main); cursor:pointer; font-weight:500;">Personel Seçilmedi</label>
+                            </div>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label>M\u00fc\u015fteri</label>
@@ -2770,6 +2782,8 @@ class App {
             }
 
             const isWait = document.getElementById('isWaiting').checked;
+            const isNoPerson = isWait && document.getElementById('isWaitingNoPerson').checked;
+            const finalPersonnelId = isNoPerson ? null : (document.getElementById('run').value || null);
 
             const data = {
                 name: customerName,
@@ -2780,7 +2794,8 @@ class App {
                 startTime: document.getElementById('rs').value,
                 endTime: document.getElementById('re').value,
                 bank: document.getElementById('rbank').value,
-                personnelId: document.getElementById('run').value || null,
+                personnelId: finalPersonnelId,
+                _explicitNoPerson: isNoPerson,
                 user: rec?.user || this.user.name,
                 updatedBy: rec ? this.user.name : null
             };
