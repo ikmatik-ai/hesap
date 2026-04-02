@@ -2382,7 +2382,10 @@ class App {
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Mesai 2 (Başla - Bitir)</label>
+                        <label style="display:flex; justify-content:space-between;">
+                            <span>Mesai 2 (Başla - Bitir)</span>
+                            <span style="font-size:10px; color:var(--danger-color); cursor:pointer; font-weight:bold;" onclick="document.getElementById('pnShiftStart2').value=''; document.getElementById('pnShiftEnd2').value='';">Sıfırla ✖</span>
+                        </label>
                         <div style="display:flex; gap:5px;">
                             <input type="time" id="pnShiftStart2" value="${p.shiftStart2 || ''}" style="flex:1;">
                             <input type="time" id="pnShiftEnd2" value="${p.shiftEnd2 || ''}" style="flex:1;">
@@ -2935,7 +2938,10 @@ class App {
                             </div>
                         </div>
                         <div class="form-group">
-                            <label>Mesai 2 (Ba\u015fla - Bitir)</label>
+                            <label style="display:flex; justify-content:space-between;">
+                                <span>Mesai 2 (Ba\u015fla - Bitir)</span>
+                                <span style="font-size:10px; color:var(--danger-color); cursor:pointer; font-weight:bold;" onclick="document.getElementById('shS2').value=''; document.getElementById('shE2').value='';">S\u0131f\u0131rla ✖</span>
+                            </label>
                             <div style="display:flex; gap:5px;">
                                 <input type="time" id="shS2" value="${p?.shiftStart2 || ''}" style="flex:1;">
                                 <input type="time" id="shE2" value="${p?.shiftEnd2 || ''}" style="flex:1;">
