@@ -44,6 +44,8 @@ class App {
             this.user = null;
             this.pFilter = 'active'; // Default personnel filter
             this.cFilter = 'active'; // Default customer filter
+            this.customersPage = 1; // Pagination current page
+            this.customersSearchQuery = ''; // Customer search query
             this.searchQuery = ''; // Grid customer search
             
             // Customer Ledger Filter Defaults (This Month)
@@ -1016,8 +1018,10 @@ class App {
         this.renderPersonnel();
     }
 
+
     // ============ CUSTOMERS MODULE ============
     renderCustomers() {
+        const PER_PAGE = 25;
         const activeCount = this.cache.customers.filter(c => c.status === 'active').length;
         const passiveCount = this.cache.customers.filter(c => c.status === 'pasif').length;
 
@@ -1049,107 +1053,151 @@ class App {
             totalBal += finalBal;
         });
 
-        // Get last record for each customer from daily records
-        const getLastRecord = (customerId) => {
-            const customer = this.cache.customers.find(c => c.id === customerId);
-            if (!customer) return null;
-            let lastRec = null;
+        // Build last record cache once (performance fix - prevents repeated full scans)
+        if (!this._customerLastRecordCache) {
+            this._customerLastRecordCache = {};
             const allDates = Object.keys(this.cache.records).sort().reverse();
             for (const date of allDates) {
-                const rec = this.cache.records[date].find(r => r.customerId === customerId || (r.name && r.name.toLocaleLowerCase('tr-TR') === customer.name.toLocaleLowerCase('tr-TR')));
-                if (rec) { lastRec = { ...rec, date }; break; }
+                const dayRecords = this.cache.records[date] || [];
+                for (const rec of dayRecords) {
+                    const cid = rec.customerId;
+                    if (cid && !this._customerLastRecordCache[cid]) {
+                        this._customerLastRecordCache[cid] = { ...rec, date };
+                    }
+                }
             }
-            return lastRec;
+        }
+
+        const getLastRecord = (customerId) => {
+            return this._customerLastRecordCache[customerId] || null;
         };
 
-        document.getElementById('mainContent').innerHTML = `
-            <div class="admin-view">
-                <div class="stats-grid" style="margin-bottom:20px;">
-                    <div class="stat-card" style="border-bottom:4px solid #3b82f6; padding:15px;">
-                        <h3 style="font-size:13px; margin-bottom:5px;">M\u00fc\u015fteri Toplam Bakiye</h3>
-                        <p style="font-size:22px; margin:0;">${this.formatNum(totalBal)} TL</p>
-                        <small style="color:var(--text-dim); font-size:11px;">(T\u00fcm m\u00fc\u015fterilerin net bor\u00e7 / alacak)</small>
-                    </div>
-                </div>
+        // Filter by status
+        let filtered = this.cache.customers
+            .filter(c => c.status === this.cFilter)
+            .sort((a, b) => a.name.localeCompare(b.name, 'tr-TR'));
 
-                <div class="admin-header" style="flex-direction:column; align-items:flex-start; gap:15px;">
-                    <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
-                        <h2>M\u00fc\u015fteri Y\u00f6netimi</h2>
-                        <div style="display:flex; gap:10px;">
-                            <input type="text" id="cSearch" placeholder="M\u00fc\u015fteri ara..." style="padding: 6px 12px; height: 32px; background: var(--bg-input); border: 1px solid var(--border-color); color: white; border-radius: 6px; font-size: 13px;">
-                            <button class="btn-primary" style="background:#8b5cf6;" onclick="app.showCustomerReport()">\ud83c\udfc6 Hizmet Raporu</button>
-                            <button class="btn-primary" onclick="app.showCustomerModal()">+ Yeni M\u00fc\u015fteri Ekle</button>
-                        </div>
-                    </div>
-                    <div class="filter-bar" style="display:flex; gap:10px; margin-top:5px;">
-                        <button class="btn-filter ${this.cFilter === 'active' ? 'active' : ''}" onclick="app.setCustomerFilter('active')">
-                            Aktifler (${activeCount})
-                        </button>
-                        <button class="btn-filter ${this.cFilter === 'pasif' ? 'active' : ''}" onclick="app.setCustomerFilter('pasif')">
-                            Pasifler (${passiveCount})
-                        </button>
-                    </div>
-                </div>
-                    <table class="excel-table" style="width:100%;">
-                        <thead>
-                            <tr>
-                                <th style="text-align:left; padding-left:15px;">M\u00fc\u015fteri Ad\u0131</th>
-                                <th>Telefon</th>
-                                <th>Net Bakiye (T\u00fcm)</th>
-                                <th>\u0130\u015flem Tarihi</th>
-                                <th>\u0130lgili Personel (Takma Ad)</th>
-                                <th>Banka</th>
-                                <th style="width:160px;">\u0130\u015flem</th>
-                            </tr>
-                        </thead>
-                        <tbody id="cTableBody">
-                            ${this.cache.customers
-                .filter(c => c.status === this.cFilter)
-                .sort((a, b) => a.name.localeCompare(b.name, 'tr-TR'))
-                .map(c => {
-                    const lastRec = getLastRecord(c.id);
-                    const p = lastRec ? this.cache.personnel.find(p => p.id === lastRec.personnelId) : null;
-                    const pName = p ? (p.alias || p.name) : '-';
-                    return `
-                                <tr>
-                                    <td style="text-align:left; padding-left:15px; font-weight:500;">${c.name}</td>
-                                    <td>${c.phone || '-'}</td>
-                                    <td style="font-weight:700; color:${customerBalances[c.id] > 0 ? 'var(--accent-color)' : customerBalances[c.id] < 0 ? 'var(--danger-color)' : 'var(--text-main)'};">
-                                        ${this.formatNum(customerBalances[c.id])} TL
-                                    </td>
-                                    <td>${lastRec ? lastRec.date.split('-').reverse().join('.') : '-'}</td>
-                                    <td>${pName}</td>
-                                    <td>${lastRec ? (lastRec.bank || '-') : '-'}</td>
-                                    <td>
-                                        <button class="btn-mini" onclick="app.showCustomerLedger('${c.id}')">Cari</button>
-                                        <button class="btn-mini" onclick="app.showCustomerModal('${c.id}')">Düzenle</button>
-                                    </td>
-                                </tr>
-                            `;
-                }).join('')}
-                            ${this.cache.customers.filter(c => c.status === this.cFilter).length === 0 ? '<tr><td colspan="6" style="padding:40px; color:var(--text-dim);">Bu listede m\u00fc\u015fteri bulunamad\u0131.</td></tr>' : ''}
-                        </tbody>
-                    </table>
-                </div>
-            </div>`;
+        // Filter by search query (JS-based instead of DOM-based)
+        const sq = this.customersSearchQuery;
+        if (sq) {
+            filtered = filtered.filter(c => {
+                const text = (c.name + ' ' + (c.phone || '') + ' ' + (c.address || '') + ' ' + (c.notes || '')).toLocaleLowerCase('tr-TR');
+                return text.includes(sq);
+            });
+        }
 
-            const cSearch = document.getElementById('cSearch');
-            if (cSearch) {
-                cSearch.oninput = (e) => {
-                    const q = e.target.value.toLocaleLowerCase('tr-TR');
-                    const rows = document.querySelectorAll('#cTableBody tr');
-                    rows.forEach(row => {
-                        const text = row.innerText.toLocaleLowerCase('tr-TR');
-                        row.style.display = text.includes(q) ? '' : 'none';
-                    });
-                };
+        // Pagination calculations
+        const totalItems = filtered.length;
+        const totalPages = Math.max(1, Math.ceil(totalItems / PER_PAGE));
+        if (this.customersPage > totalPages) this.customersPage = totalPages;
+        if (this.customersPage < 1) this.customersPage = 1;
+        const startIdx = (this.customersPage - 1) * PER_PAGE;
+        const pageItems = filtered.slice(startIdx, startIdx + PER_PAGE);
+
+        // Build pagination controls
+        let paginationHTML = '';
+        if (totalPages > 1) {
+            let pageButtons = '';
+            const maxVisible = 7;
+            let startPage = Math.max(1, this.customersPage - Math.floor(maxVisible / 2));
+            let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+            if (endPage - startPage < maxVisible - 1) startPage = Math.max(1, endPage - maxVisible + 1);
+
+            if (startPage > 1) {
+                pageButtons += '<button class="btn-filter" onclick="app.setCustomersPage(1)">1</button>';
+                if (startPage > 2) pageButtons += '<span style="color:var(--text-dim); padding:0 4px;">...</span>';
             }
+            for (let i = startPage; i <= endPage; i++) {
+                pageButtons += '<button class="btn-filter ' + (i === this.customersPage ? 'active' : '') + '" onclick="app.setCustomersPage(' + i + ')">' + i + '</button>';
+            }
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) pageButtons += '<span style="color:var(--text-dim); padding:0 4px;">...</span>';
+                pageButtons += '<button class="btn-filter" onclick="app.setCustomersPage(' + totalPages + ')">' + totalPages + '</button>';
+            }
+
+            paginationHTML = '<div style="display:flex; justify-content:center; align-items:center; gap:6px; padding:15px 0; flex-wrap:wrap;">'
+                + '<button class="btn-filter" onclick="app.setCustomersPage(' + (this.customersPage - 1) + ')" ' + (this.customersPage <= 1 ? 'disabled style="opacity:0.4; pointer-events:none;"' : '') + '>\u25c0 \u00d6nceki</button>'
+                + pageButtons
+                + '<button class="btn-filter" onclick="app.setCustomersPage(' + (this.customersPage + 1) + ')" ' + (this.customersPage >= totalPages ? 'disabled style="opacity:0.4; pointer-events:none;"' : '') + '>Sonraki \u25b6</button>'
+                + '<span style="color:var(--text-dim); font-size:11px; margin-left:10px;">(' + totalItems + ' sonu\u00e7, Sayfa ' + this.customersPage + '/' + totalPages + ')</span>'
+                + '</div>';
+        }
+
+        // Build table rows only for current page
+        const rowsHTML = pageItems.map(c => {
+            const lastRec = getLastRecord(c.id);
+            const p = lastRec ? this.cache.personnel.find(p => p.id === lastRec.personnelId) : null;
+            const pName = p ? (p.alias || p.name) : '-';
+            return '<tr>'
+                + '<td style="text-align:left; padding-left:15px; font-weight:500;">' + c.name + '</td>'
+                + '<td>' + (c.phone || '-') + '</td>'
+                + '<td style="font-weight:700; color:' + (customerBalances[c.id] > 0 ? 'var(--accent-color)' : customerBalances[c.id] < 0 ? 'var(--danger-color)' : 'var(--text-main)') + ';">' + this.formatNum(customerBalances[c.id]) + ' TL</td>'
+                + '<td>' + (lastRec ? lastRec.date.split('-').reverse().join('.') : '-') + '</td>'
+                + '<td>' + pName + '</td>'
+                + '<td>' + (lastRec ? (lastRec.bank || '-') : '-') + '</td>'
+                + '<td><button class="btn-mini" onclick="app.showCustomerLedger(\'' + c.id + '\')">Cari</button> <button class="btn-mini" onclick="app.showCustomerModal(\'' + c.id + '\')">D\u00fczenlemi</button></td>'
+                + '</tr>';
+        }).join('');
+
+        const emptyRow = pageItems.length === 0 ? '<tr><td colspan="7" style="padding:40px; color:var(--text-dim);">Bu listede m\u00fc\u015fteri bulunamad\u0131.</td></tr>' : '';
+
+        document.getElementById('mainContent').innerHTML = '<div class="admin-view">'
+            + '<div class="stats-grid" style="margin-bottom:20px;">'
+            + '<div class="stat-card" style="border-bottom:4px solid #3b82f6; padding:15px;">'
+            + '<h3 style="font-size:13px; margin-bottom:5px;">M\u00fc\u015fteri Toplam Bakiye</h3>'
+            + '<p style="font-size:22px; margin:0;">' + this.formatNum(totalBal) + ' TL</p>'
+            + '<small style="color:var(--text-dim); font-size:11px;">(T\u00fcm m\u00fc\u015fterilerin net bor\u00e7 / alacak)</small>'
+            + '</div></div>'
+            + '<div class="admin-header" style="flex-direction:column; align-items:flex-start; gap:15px;">'
+            + '<div style="display:flex; justify-content:space-between; width:100%; align-items:center;">'
+            + '<h2>M\u00fc\u015fteri Y\u00f6netimi</h2>'
+            + '<div style="display:flex; gap:10px;">'
+            + '<input type="text" id="cSearch" placeholder="M\u00fc\u015fteri ara..." value="' + (this.customersSearchQuery || '') + '" style="padding: 6px 12px; height: 32px; background: var(--bg-input); border: 1px solid var(--border-color); color: white; border-radius: 6px; font-size: 13px;">'
+            + '<button class="btn-primary" style="background:#8b5cf6;" onclick="app.showCustomerReport()">\ud83c\udfc6 Hizmet Raporu</button>'
+            + '<button class="btn-primary" onclick="app.showCustomerModal()">+ Yeni M\u00fc\u015fteri Ekle</button>'
+            + '</div></div>'
+            + '<div class="filter-bar" style="display:flex; gap:10px; margin-top:5px;">'
+            + '<button class="btn-filter ' + (this.cFilter === 'active' ? 'active' : '') + '" onclick="app.setCustomerFilter(\'active\')">Aktifler (' + activeCount + ')</button>'
+            + '<button class="btn-filter ' + (this.cFilter === 'pasif' ? 'active' : '') + '" onclick="app.setCustomerFilter(\'pasif\')">Pasifler (' + passiveCount + ')</button>'
+            + '</div></div>'
+            + '<table class="excel-table" style="width:100%;"><thead><tr>'
+            + '<th style="text-align:left; padding-left:15px;">M\u00fc\u015fteri Ad\u0131</th>'
+            + '<th>Telefon</th><th>Net Bakiye (T\u00fcm)</th><th>\u0130\u015flem Tarihi</th>'
+            + '<th>\u0130lgili Personel (Takma Ad)</th><th>Banka</th><th style="width:160px;">\u0130\u015flem</th>'
+            + '</tr></thead><tbody id="cTableBody">'
+            + rowsHTML + emptyRow
+            + '</tbody></table>'
+            + paginationHTML
+            + '</div></div>';
+
+        const cSearch = document.getElementById('cSearch');
+        if (cSearch) {
+            cSearch.oninput = (e) => {
+                this.customersSearchQuery = e.target.value.toLocaleLowerCase('tr-TR');
+                this.customersPage = 1;
+                this._customerLastRecordCache = null;
+                this.renderCustomers();
+                // Re-focus and position cursor at end
+                const el = document.getElementById('cSearch');
+                if (el) { el.focus(); el.selectionStart = el.selectionEnd = el.value.length; }
+            };
+        }
     }
 
     setCustomerFilter(filter) {
         this.cFilter = filter;
+        this.customersPage = 1;
+        this._customerLastRecordCache = null;
         this.renderCustomers();
     }
+
+    setCustomersPage(page) {
+        this.customersPage = page;
+        this.renderCustomers();
+        const el = document.getElementById('cTableBody');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
 
     showCustomerModal(id = null) {
         const c = id ? this.cache.customers.find(x => x.id == id) : null;
