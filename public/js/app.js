@@ -2717,9 +2717,32 @@ class App {
                         <div class="form-group"><label>Ba\u015flang\u0131\u00e7 Saati</label><input type="time" id="rs" value="${rec?.startTime || ''}"></div>
                         <div class="form-group"><label>Biti\u015f Saati</label><input type="time" id="re" value="${rec?.endTime || ''}"></div>
                     </div>
-                    <div class="form-row">
-                        <div class="form-group"><label>Renk Vurgusu</label><input type="color" id="rc" value="${rec?.color || '#ffffff'}"></div>
-                        <div class="form-group">
+                    <div class="form-row" style="align-items:flex-start;">
+                        <div style="flex:1; display:flex; flex-direction:column; gap:10px;">
+                            <div class="form-group"><label>Renk Vurgusu</label><input type="color" id="rc" value="${rec?.color || '#ffffff'}"></div>
+                            <div class="form-group">
+                                <label>Banka</label>
+                                <select id="rbank">
+                                    <option value="">Se\u00e7iniz...</option>
+                                    ${(this.cache.definitions.bank || []).map(b => `<option value="${b}" ${rec?.bank === b ? 'selected' : ''}>${b}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Personel Kullan\u0131c\u0131 Ad\u0131</label>
+                                <select id="run">
+                                    <option value="" ${(!pid && !rec?.personnelId) ? 'selected' : ''}>-- Personel Se\u00e7ilmedi --</option>
+                                    ${[...this.cache.personnel].filter(p => p.status === 'active' || p.status === 'izinli').sort((a,b) => {
+                                        const s1 = String(a.alias || a.name || "").trim();
+                                        const s2 = String(b.alias || b.name || "").trim();
+                                        return s1.localeCompare(s2, 'tr-TR');
+                                    }).map(p => {
+                                        const isSelected = (pid ? pid == p.id : (rec?.personnelId ? rec.personnelId == p.id : false));
+                                        return `<option value="${p.id}" ${isSelected ? 'selected' : ''}>${p.alias || p.name}</option>`;
+                                    }).join('')}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group" style="flex:1;">
                             <label>Tutar</label>
                             <input type="number" step="0.01" id="ra" value="${rec?.amount || ''}" required>
                             <div id="netPreview" style="font-size:11px; color:var(--text-dim); margin-top:8px; background:rgba(0,0,0,0.02); padding:8px; border-radius:6px; border:1px dashed var(--border-color); min-height:85px;">
@@ -2744,29 +2767,6 @@ class App {
                                     `;
                                 })()}
                             </div>
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Banka</label>
-                            <select id="rbank">
-                                <option value="">Se\u00e7iniz...</option>
-                                ${(this.cache.definitions.bank || []).map(b => `<option value="${b}" ${rec?.bank === b ? 'selected' : ''}>${b}</option>`).join('')}
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Personel Kullan\u0131c\u0131 Ad\u0131</label>
-                            <select id="run">
-                                <option value="" ${(!pid && !rec?.personnelId) ? 'selected' : ''}>-- Personel Se\u00e7ilmedi --</option>
-                                ${[...this.cache.personnel].filter(p => p.status === 'active' || p.status === 'izinli').sort((a,b) => {
-                                    const s1 = String(a.alias || a.name || "").trim();
-                                    const s2 = String(b.alias || b.name || "").trim();
-                                    return s1.localeCompare(s2, 'tr-TR');
-                                }).map(p => {
-                                    const isSelected = (pid ? pid == p.id : (rec?.personnelId ? rec.personnelId == p.id : false));
-                                    return `<option value="${p.id}" ${isSelected ? 'selected' : ''}>${p.alias || p.name}</option>`;
-                                }).join('')}
-                            </select>
                         </div>
                     </div>
                     <div class="modal-actions" style="display:flex; justify-content:space-between; align-items:center;">
@@ -2835,6 +2835,11 @@ class App {
             const isWait = document.getElementById('isWaiting').checked;
             const isNoPerson = isWait && document.getElementById('isWaitingNoPerson').checked;
             const finalPersonnelId = isNoPerson ? null : (document.getElementById('run').value || null);
+
+            // Bekleyenlere eklenmiyorsa personel seçimi zorunlu
+            if (!isWait && !document.getElementById('run').value) {
+                return this.showToast('Lütfen bir personel seçiniz!', 'error');
+            }
 
             const data = {
                 name: customerName,
