@@ -12,9 +12,8 @@ class App {
 
             this.getBusinessDate = () => {
                 const now = new Date();
-                const hours = now.getHours();
-                // Ensure business date doesn't shift until 03:00 AM
-                if (hours < 3) now.setDate(now.getDate() - 1);
+                // Prefer explicitly started shift date if available
+                if (this.cache && this.cache.activeShift) return this.cache.activeShift;
                 return this.formatDate(now);
             };
 
@@ -89,10 +88,12 @@ class App {
                 customers: this.store.get('customers') || [],
                 customerLedgers: this.store.get('customerLedgers') || {},
                 dailyNotes: this.store.get('dailyNotes') || {},
+                dailyExtra: this.store.get('dailyExtra') || {},
                 waitingRecords: this.store.get('waitingRecords') || [],
                 lastPersonnelId: this.store.get('lastPersonnelId') || null,
                 actionLogs: this.store.get('actionLogs') || []
             };
+
             // Robust check for definitions
             if (!this.cache.definitions.income) this.cache.definitions.income = [];
             if (!this.cache.definitions.expense) this.cache.definitions.expense = [];
@@ -100,11 +101,19 @@ class App {
 
             this.cache.personNotes = this.store.get('personNotes', {});
 
-            // Migration: Ensure 'extra' exists in todo
-            if (!this.cache.todo.extra) {
-                this.cache.todo.extra = [];
-                this.store.set('todo', this.cache.todo);
+            // Migration: Move global 'extra' to 'dailyExtra' if it exists and has content
+            if (this.cache.todo.extra && this.cache.todo.extra.length > 0) {
+                if (!this.cache.dailyExtra[this.today]) {
+                    this.cache.dailyExtra[this.today] = this.cache.todo.extra;
+                    this.store.set('dailyExtra', this.cache.dailyExtra);
+                    // Keep global empty now that it's migrated
+                    this.cache.todo.extra = [];
+                    this.store.set('todo', this.cache.todo);
+                }
             }
+
+            // Migration: Ensure 'extra' key exists in todo for safety (though we'll use dailyExtra)
+            if (!this.cache.todo.extra) this.cache.todo.extra = [];
 
             // Force add 'permissions' and 'actionLogs' to admin if missing (migration)
             if (this.cache.permissions.admin) {
@@ -451,6 +460,9 @@ class App {
             const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
             const dayRecords = this.cache.records[this.currentDate] || [];
             const isClosed = this.cache.closedDays.includes(this.currentDate);
+            const isActive = this.cache.activeShift === this.currentDate;
+            const isWorkingDayOpen = isActive && !isClosed;
+
             const historicalLeaves = this.cache.leaves[this.currentDate] || [];
             const dayNamesShort = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
             const [by, bm, bd] = this.currentDate.split('-').map(Number);
@@ -470,7 +482,10 @@ class App {
                         inSession = pRecords.some(r => {
                             const sMin = this.timeToMinutes(r.startTime);
                             const eMin = this.timeToMinutes(r.endTime);
-                            return currentMin >= sMin && currentMin <= eMin;
+                            // Support midnight crossing for sessions
+                            return (sMin <= eMin) 
+                                ? (currentMin >= sMin && currentMin <= eMin)
+                                : (currentMin >= sMin || currentMin <= eMin);
                         });
 
                         if (inSession) {
@@ -483,9 +498,9 @@ class App {
                             const hasS1 = t1s >= 0 && t1e >= 0;
                             const hasS2 = t2s >= 0 && t2e >= 0;
 
-                            if (hasS1 || hasS2) {
-                                const inS1 = hasS1 ? (currentMin >= t1s && currentMin <= t1e) : false;
-                                const inS2 = hasS2 ? (currentMin >= t2s && currentMin <= t2e) : false;
+                            if (isWorkingDayOpen && (hasS1 || hasS2)) {
+                                const inS1 = hasS1 ? (t1s <= t1e ? (currentMin >= t1s && currentMin <= t1e) : (currentMin >= t1s || currentMin <= t1e)) : false;
+                                const inS2 = hasS2 ? (t2s <= t2e ? (currentMin >= t2s && currentMin <= t2e) : (currentMin >= t2s || currentMin <= t2e)) : false;
                                 isWorkingHours = inS1 || inS2;
                             }
                             
@@ -636,7 +651,9 @@ class App {
                             inSession = pRecords.some(r => {
                                 const sMin = this.timeToMinutes(r.startTime);
                                 const eMin = this.timeToMinutes(r.endTime);
-                                return currentMin >= sMin && currentMin <= eMin;
+                                return (sMin <= eMin) 
+                                    ? (currentMin >= sMin && currentMin <= eMin)
+                                    : (currentMin >= sMin || currentMin <= eMin);
                             });
                         }
                         
@@ -644,6 +661,7 @@ class App {
                             statusHtml = '<div style="color:#ef4444; font-weight:900; font-size:9.5px; letter-spacing:0.3px;">SEANSTA</div>';
                         } else if (isToday) {
                             let isWorkingHours = false;
+                            const isWorkingDayOpen = isActive && !isClosed;
                             const currentMin = this.timeToMinutes(currentTime);
                             const t1s = this.timeToMinutes(p.shiftStart), t1e = this.timeToMinutes(p.shiftEnd);
                             const t2s = this.timeToMinutes(p.shiftStart2), t2e = this.timeToMinutes(p.shiftEnd2);
@@ -651,9 +669,9 @@ class App {
                             const hasS1 = t1s >= 0 && t1e >= 0;
                             const hasS2 = t2s >= 0 && t2e >= 0;
 
-                            if (hasS1 || hasS2) {
-                                const inS1 = hasS1 ? (currentMin >= t1s && currentMin <= t1e) : false;
-                                const inS2 = hasS2 ? (currentMin >= t2s && currentMin <= t2e) : false;
+                            if (isWorkingDayOpen && (hasS1 || hasS2)) {
+                                const inS1 = hasS1 ? (t1s <= t1e ? (currentMin >= t1s && currentMin <= t1e) : (currentMin >= t1s || currentMin <= t1e)) : false;
+                                const inS2 = hasS2 ? (t2s <= t2e ? (currentMin >= t2s && currentMin <= t2e) : (currentMin >= t2s || currentMin <= t2e)) : false;
                                 isWorkingHours = inS1 || inS2;
                             }
                             
@@ -731,7 +749,17 @@ class App {
                     td.innerText = this.formatNum(net);
                     
                     if (rec.color && rec.color !== '#ffffff') {
-                        td.style.backgroundColor = isOff ? '#f1f5f9' : `rgba(${this.hexToRgb(rec.color)}, 0.4)`;
+                        if (isOff) {
+                            td.style.backgroundColor = '#f1f5f9';
+                        } else {
+                            if (rec.color === '#ff5c5c') {
+                                td.style.backgroundColor = '#ff5c5c';
+                                td.style.color = '#ffffff';
+                                td.style.fontWeight = 'bold';
+                            } else {
+                                td.style.backgroundColor = `rgba(${this.hexToRgb(rec.color)}, 0.6)`;
+                            }
+                        }
                     } else if (isOff) {
                         td.style.backgroundColor = '#f1f5f9';
                     }
@@ -1075,7 +1103,7 @@ class App {
         // Filter by status
         let filtered = this.cache.customers
             .filter(c => c.status === this.cFilter)
-            .sort((a, b) => a.name.localeCompare(b.name, 'tr-TR'));
+            .sort((a, b) => (a.name||'').localeCompare((b.name||''), 'tr-TR', {sensitivity: 'base'}));
 
         // Filter by search query (JS-based instead of DOM-based)
         const sq = this.customersSearchQuery;
@@ -1524,7 +1552,7 @@ class App {
                             </div>
                             <div class="select-dropdown" id="cid_list">
                                 <div class="select-option ${this.rCid === 'all' ? 'selected' : ''}" onclick="app.selectSearchableOption('rc_rep', 'all', 'T\u00fcm M\u00fc\u015fteriler', 'cid_search', 'cid_list')">T\u00fcm M\u00fc\u015fteriler</div>
-                                ${this.cache.customers.filter(c => c.status === 'active').sort((a,b)=>a.name.localeCompare(b.name, 'tr-TR')).map(c => `
+                                ${this.cache.customers.filter(c => c.status === 'active').sort((a,b)=>(a.name||'').localeCompare((b.name||''), 'tr-TR', {sensitivity: 'base'})).map(c => `
                                     <div class="select-option ${this.rCid === c.id ? 'selected' : ''}" 
                                         onclick="app.selectSearchableOption('rc_rep', '${c.id}', '${c.name}', 'cid_search', 'cid_list')">
                                         ${c.name}
@@ -2220,12 +2248,10 @@ class App {
     changeDate(n) { const d = new Date(this.currentDate); d.setDate(d.getDate() + n); this.currentDate = this.formatDate(d); this.renderMain(); }
     hexToRgb(h) { const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(h); return r ? `${parseInt(r[1], 16)},${parseInt(r[2], 16)},${parseInt(r[3], 16)}` : '79,70,229'; }
     startDay() { 
-        if (confirm(`${this.currentDate} tarihli günü başlatmak istiyor musunuz?\n\nNot: Bu işlem 'EXTRA' alanını sıfırlayacaktır.`)) { 
-            this.cache.todo.extra = [];
-            this.store.set('todo', this.cache.todo);
+        if (confirm(`${this.currentDate} tarihli günü başlatmak istiyor musunuz?`)) { 
             this.cache.activeShift = this.currentDate; 
             this.store.set('activeShift', this.cache.activeShift); 
-            this.logAction(`İş Günü Başlatıldı: ${this.currentDate} (Extra sıfırlandı)`); 
+            this.logAction(`İş Günü Başlatıldı: ${this.currentDate}`); 
             this.renderMain(); 
         } 
     }
@@ -2299,6 +2325,11 @@ class App {
             this.cache.closedDays.push(this.currentDate);
             this.store.set('closedDays', this.cache.closedDays);
             this.logAction(`İş Günü Kapatıldı: ${this.currentDate}`);
+
+            // Bekleyen Kayıtları (Sağ Panel) Sıfırla
+            this.cache.waitingRecords = [];
+            this.store.set('waitingRecords', []);
+
             this.cache.activeShift = null;
             this.store.set('activeShift', null);
             this.backupData(true);
@@ -2315,7 +2346,7 @@ class App {
         }
     }
     backupData(auto = false) {
-        const data = { records: this.cache.records, personnel: this.cache.personnel, settings: this.cache.settings, todo: this.cache.todo, closedDays: this.cache.closedDays, panelTitles: this.cache.panelTitles, transactions: this.cache.transactions, leaves: this.cache.leaves };
+        const data = { records: this.cache.records, personnel: this.cache.personnel, settings: this.cache.settings, todo: this.cache.todo, closedDays: this.cache.closedDays, panelTitles: this.cache.panelTitles, transactions: this.cache.transactions, leaves: this.cache.leaves, dailyExtra: this.cache.dailyExtra };
 
         // Auto-save to local disk via Electron
         if (window.electronAPI && window.electronAPI.autoBackup) {
@@ -2351,6 +2382,7 @@ class App {
                         this.store.set('settings', data.settings || this.cache.settings);
                         this.store.set('transactions', data.transactions || []);
                         this.store.set('todo', data.todo || { pending: [], extra: [], remaining: [] });
+                        this.store.set('dailyExtra', data.dailyExtra || {});
                         this.store.set('closedDays', data.closedDays || []);
                         this.store.set('panelTitles', data.panelTitles || { pending: 'Müşteri Bekleyenler', extra: 'Extra Panel', remaining: 'Müşteri Kalanlar' });
 
@@ -2385,8 +2417,15 @@ class App {
 
     addTodo(t) {
         this.showInputModal('Yeni Not', '', (v) => {
-            this.cache.todo[t].push(v.toLocaleUpperCase('tr-TR'));
-            this.store.set('todo', this.cache.todo);
+            const finalVal = v.toLocaleUpperCase('tr-TR');
+            if (t === 'extra') {
+                if (!this.cache.dailyExtra[this.currentDate]) this.cache.dailyExtra[this.currentDate] = [];
+                this.cache.dailyExtra[this.currentDate].push(finalVal);
+                this.store.set('dailyExtra', this.cache.dailyExtra);
+            } else {
+                this.cache.todo[t].push(finalVal);
+                this.store.set('todo', this.cache.todo);
+            }
             this.renderTodos();
         });
     }
@@ -2408,7 +2447,15 @@ class App {
                 <div class="form-row">
                     <div class="form-group">
                         <label>Başlık Rengi</label>
-                        <input type="color" id="pnColor" value="${p.color || '#000000'}" style="height:40px; padding:2px;">
+                        <div style="display:flex; align-items:flex-start; gap:10px;">
+                            <input type="color" id="pnColor" value="${p.color || '#000000'}" style="width:40px; height:62px; cursor:pointer; border:1px solid var(--border-color); border-radius:6px;">
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px; flex:1;">
+                                <button type="button" class="pn-color-preset ${p.color === '#ff5c5c' ? 'active' : ''}" onclick="app.setPnQuickColor(this, '#ff5c5c')" style="background:#ff5c5c; border:2px solid ${(p.color === '#ff5c5c') ? '#fff' : 'transparent'}; color:white; padding:5px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; text-align:left; box-shadow: ${(p.color === '#ff5c5c') ? '0 0 0 2px #ff5c5c' : 'none'}">🟥 Dönüş</button>
+                                <button type="button" class="pn-color-preset ${p.color === '#3b82f6' ? 'active' : ''}" onclick="app.setPnQuickColor(this, '#3b82f6')" style="background:#3b82f6; border:2px solid ${(p.color === '#3b82f6') ? '#fff' : 'transparent'}; color:white; padding:5px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; text-align:left; box-shadow: ${(p.color === '#3b82f6') ? '0 0 0 2px #3b82f6' : 'none'}">🟦 Dünden</button>
+                                <button type="button" class="pn-color-preset ${p.color === '#f59e0b' ? 'active' : ''}" onclick="app.setPnQuickColor(this, '#f59e0b')" style="background:#f59e0b; border:2px solid ${(p.color === '#f59e0b') ? '#fff' : 'transparent'}; color:white; padding:5px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; text-align:left; box-shadow: ${(p.color === '#f59e0b') ? '0 0 0 2px #f59e0b' : 'none'}">🟨 Olumlu</button>
+                                <button type="button" class="pn-color-preset ${p.color === '#10b981' ? 'active' : ''}" onclick="app.setPnQuickColor(this, '#10b981')" style="background:#10b981; border:2px solid ${(p.color === '#10b981') ? '#fff' : 'transparent'}; color:white; padding:5px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; text-align:left; box-shadow: ${(p.color === '#10b981') ? '0 0 0 2px #10b981' : 'none'}">🟩 Olumsuz</button>
+                            </div>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label>Durum</label>
@@ -2618,12 +2665,16 @@ class App {
         this.renderWaitingRecords();
         ['extra', 'remaining'].forEach(t => {
             const el = document.getElementById(t[0] + 'List');
-            if (el) el.innerHTML = (this.cache.todo[t] || []).map((x, i) => `
+            if (!el) return;
+            
+            const list = (t === 'extra') ? (this.cache.dailyExtra[this.currentDate] || []) : (this.cache.todo[t] || []);
+            
+            el.innerHTML = list.map((x, i) => `
                 <div class="todo-item">
                     <div class="todo-controls-left">
                         <div style="display:flex; flex-direction:column; width:14px; height:100%; justify-content:center;">
                             <button class="btn-move" onclick="app.moveTodo('${t}', ${i}, -1)" ${i === 0 ? 'disabled style="opacity:0.05"' : ''}>▲</button>
-                            <button class="btn-move" onclick="app.moveTodo('${t}', ${i}, 1)" ${i === this.cache.todo[t].length - 1 ? 'disabled style="opacity:0.05"' : ''}>▼</button>
+                            <button class="btn-move" onclick="app.moveTodo('${t}', ${i}, 1)" ${i === list.length - 1 ? 'disabled style="opacity:0.05"' : ''}>▼</button>
                         </div>
                         <button class="btn-move" onclick="app.copyTodo('${t}', ${i})" style="font-size:9px; height:100%; padding:0 2px;" title="Kopyala">📋</button>
                     </div>
@@ -2634,7 +2685,9 @@ class App {
     }
 
     copyTodo(type, index) {
-        const text = this.cache.todo[type][index];
+        const list = (type === 'extra') ? (this.cache.dailyExtra[this.currentDate] || []) : (this.cache.todo[type] || []);
+        const text = list[index];
+        if (!text) return;
         navigator.clipboard.writeText(text).then(() => {
             this.showToast('Kopyalandı', 'success');
         }).catch(() => {
@@ -2643,23 +2696,72 @@ class App {
     }
 
     moveTodo(type, index, dir) {
-        const list = this.cache.todo[type];
+        const list = (type === 'extra') ? (this.cache.dailyExtra[this.currentDate] || []) : (this.cache.todo[type] || []);
         const target = index + dir;
         if (target < 0 || target >= list.length) return;
 
         [list[index], list[target]] = [list[target], list[index]];
-        this.store.set('todo', this.cache.todo);
+        
+        if (type === 'extra') {
+            this.cache.dailyExtra[this.currentDate] = list;
+            this.store.set('dailyExtra', this.cache.dailyExtra);
+        } else {
+            this.cache.todo[type] = list;
+            this.store.set('todo', this.cache.todo);
+        }
         this.renderTodos();
     }
     editTodo(t, i) {
-        const current = this.cache.todo[t][i];
+        const list = (t === 'extra') ? (this.cache.dailyExtra[this.currentDate] || []) : (this.cache.todo[t] || []);
+        const current = list[i];
         this.showInputModal('Notu D\u00fczenle', current, (val) => {
-            this.cache.todo[t][i] = val;
-            this.store.set('todo', this.cache.todo);
+            const finalVal = val.toLocaleUpperCase('tr-TR');
+            if (t === 'extra') {
+                this.cache.dailyExtra[this.currentDate][i] = finalVal;
+                this.store.set('dailyExtra', this.cache.dailyExtra);
+            } else {
+                this.cache.todo[t][i] = finalVal;
+                this.store.set('todo', this.cache.todo);
+            }
             this.renderTodos();
         });
     }
-    remTodo(t, i) { if (confirm('Silmek istedi\u011finize emin misiniz?')) { this.cache.todo[t].splice(i, 1); this.store.set('todo', this.cache.todo); this.renderTodos(); } }
+    setPnQuickColor(btn, color) {
+        document.getElementById('pnColor').value = color;
+        // Reset all pn presets
+        document.querySelectorAll('.pn-color-preset').forEach(b => {
+            b.style.border = '2px solid transparent';
+            b.style.boxShadow = 'none';
+        });
+        // Highlight active
+        btn.style.border = '2px solid #fff';
+        btn.style.boxShadow = `0 0 0 2px ${color}`;
+    }
+
+    setQuickColor(btn, color) {
+        document.getElementById('rc').value = color;
+        // Reset all presets
+        document.querySelectorAll('.color-preset').forEach(b => {
+            b.style.border = '2px solid transparent';
+            b.style.boxShadow = 'none';
+        });
+        // Highlight active
+        btn.style.border = '2px solid #fff';
+        btn.style.boxShadow = `0 0 0 2px ${color}`;
+    }
+
+    remTodo(t, i) { 
+        if (confirm('Silmek istedi\u011finize emin misiniz?')) { 
+            if (t === 'extra') {
+                this.cache.dailyExtra[this.currentDate].splice(i, 1);
+                this.store.set('dailyExtra', this.cache.dailyExtra);
+            } else {
+                this.cache.todo[t].splice(i, 1);
+                this.store.set('todo', this.cache.todo);
+            }
+            this.renderTodos(); 
+        } 
+    }
 
     showRecordModal(pid, idx, rec) {
         const isAdmin = this.user.role === 'admin';
@@ -2702,7 +2804,7 @@ class App {
                                     >
                                 </div>
                                 <div class="select-dropdown" id="rn_list">
-                                    ${this.cache.customers.filter(c => c.status === 'active').sort((a,b)=>a.name.localeCompare(b.name, 'tr-TR')).map(c => `
+                                    ${this.cache.customers.filter(c => c.status === 'active').sort((a,b)=>(a.name||'').localeCompare((b.name||''), 'tr-TR', {sensitivity: 'base'})).map(c => `
                                         <div class="select-option ${rec?.customerId === c.id ? 'selected' : ''}" 
                                             onclick="app.selectSearchableOptionMain('${c.id}', '${c.name.replace(/'/g, "\\'")}', 'rn', 'rn_list')">
                                             ${c.name}
@@ -2719,12 +2821,23 @@ class App {
                     </div>
                     <div class="form-row" style="align-items:flex-start;">
                         <div style="flex:1; display:flex; flex-direction:column; gap:10px;">
-                            <div class="form-group"><label>Renk Vurgusu</label><input type="color" id="rc" value="${rec?.color || '#ffffff'}"></div>
+                            <div class="form-group">
+                                <label>Renk Vurgusu</label>
+                                <div style="display:flex; align-items:flex-start; gap:10px;">
+                                    <input type="color" id="rc" value="${rec?.color || '#ffffff'}" style="width:40px; height:62px; cursor:pointer; border:1px solid var(--border-color); border-radius:6px;">
+                                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px; flex:1;">
+                                        <button type="button" class="color-preset ${rec?.color === '#ff5c5c' ? 'active' : ''}" onclick="app.setQuickColor(this, '#ff5c5c')" style="background:#ff5c5c; border:2px solid ${(rec?.color === '#ff5c5c') ? '#fff' : 'transparent'}; color:white; padding:5px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; text-align:left; box-shadow: ${(rec?.color === '#ff5c5c') ? '0 0 0 2px #ff5c5c' : 'none'}">\ud83d\udfe5 D\u00f6n\u00fc\u015f</button>
+                                        <button type="button" class="color-preset ${rec?.color === '#3b82f6' ? 'active' : ''}" onclick="app.setQuickColor(this, '#3b82f6')" style="background:#3b82f6; border:2px solid ${(rec?.color === '#3b82f6') ? '#fff' : 'transparent'}; color:white; padding:5px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; text-align:left; box-shadow: ${(rec?.color === '#3b82f6') ? '0 0 0 2px #3b82f6' : 'none'}">\ud83d\udfe6 D\u00fcnden</button>
+                                        <button type="button" class="color-preset ${rec?.color === '#f59e0b' ? 'active' : ''}" onclick="app.setQuickColor(this, '#f59e0b')" style="background:#f59e0b; border:2px solid ${(rec?.color === '#f59e0b') ? '#fff' : 'transparent'}; color:white; padding:5px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; text-align:left; box-shadow: ${(rec?.color === '#f59e0b') ? '0 0 0 2px #f59e0b' : 'none'}">\ud83d\udfe8 Olumlu</button>
+                                        <button type="button" class="color-preset ${rec?.color === '#10b981' ? 'active' : ''}" onclick="app.setQuickColor(this, '#10b981')" style="background:#10b981; border:2px solid ${(rec?.color === '#10b981') ? '#fff' : 'transparent'}; color:white; padding:5px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; text-align:left; box-shadow: ${(rec?.color === '#10b981') ? '0 0 0 2px #10b981' : 'none'}">\ud83d\udfe9 Olumsuz</button>
+                                    </div>
+                                </div>
+                            </div>
                             <div class="form-group">
                                 <label>Banka</label>
                                 <select id="rbank">
                                     <option value="">Se\u00e7iniz...</option>
-                                    ${(this.cache.definitions.bank || []).map(b => `<option value="${b}" ${rec?.bank === b ? 'selected' : ''}>${b}</option>`).join('')}
+                                    ${(this.cache.definitions.bank || []).sort((a,b)=>a.localeCompare(b, 'tr-TR', {sensitivity: 'base'})).map(b => `<option value="${b}" ${rec?.bank === b ? 'selected' : ''}>${b}</option>`).join('')}
                                 </select>
                             </div>
                             <div class="form-group">
@@ -2734,7 +2847,7 @@ class App {
                                     ${[...this.cache.personnel].filter(p => p.status === 'active' || p.status === 'izinli').sort((a,b) => {
                                         const s1 = String(a.alias || a.name || "").trim();
                                         const s2 = String(b.alias || b.name || "").trim();
-                                        return s1.localeCompare(s2, 'tr-TR');
+                                        return s1.localeCompare(s2, 'tr-TR', {sensitivity: 'base'});
                                     }).map(p => {
                                         const isSelected = (pid ? pid == p.id : (rec?.personnelId ? rec.personnelId == p.id : false));
                                         return `<option value="${p.id}" ${isSelected ? 'selected' : ''}>${p.alias || p.name}</option>`;
