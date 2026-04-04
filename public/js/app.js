@@ -2449,11 +2449,11 @@ class App {
                         <label>Başlık Rengi</label>
                         <div style="display:flex; align-items:flex-start; gap:10px;">
                             <input type="color" id="pnColor" value="${p.color || '#000000'}" style="width:40px; height:62px; cursor:pointer; border:1px solid var(--border-color); border-radius:6px;">
-                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px; flex:1;">
-                                <button type="button" class="pn-color-preset ${p.color === '#ff5c5c' ? 'active' : ''}" onclick="app.setPnQuickColor(this, '#ff5c5c')" style="background:#ff5c5c; border:2px solid ${(p.color === '#ff5c5c') ? '#fff' : 'transparent'}; color:white; padding:5px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; text-align:left; box-shadow: ${(p.color === '#ff5c5c') ? '0 0 0 2px #ff5c5c' : 'none'}">🟥 Dönüş</button>
-                                <button type="button" class="pn-color-preset ${p.color === '#3b82f6' ? 'active' : ''}" onclick="app.setPnQuickColor(this, '#3b82f6')" style="background:#3b82f6; border:2px solid ${(p.color === '#3b82f6') ? '#fff' : 'transparent'}; color:white; padding:5px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; text-align:left; box-shadow: ${(p.color === '#3b82f6') ? '0 0 0 2px #3b82f6' : 'none'}">🟦 Dünden</button>
-                                <button type="button" class="pn-color-preset ${p.color === '#f59e0b' ? 'active' : ''}" onclick="app.setPnQuickColor(this, '#f59e0b')" style="background:#f59e0b; border:2px solid ${(p.color === '#f59e0b') ? '#fff' : 'transparent'}; color:white; padding:5px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; text-align:left; box-shadow: ${(p.color === '#f59e0b') ? '0 0 0 2px #f59e0b' : 'none'}">🟨 Olumlu</button>
-                                <button type="button" class="pn-color-preset ${p.color === '#10b981' ? 'active' : ''}" onclick="app.setPnQuickColor(this, '#10b981')" style="background:#10b981; border:2px solid ${(p.color === '#10b981') ? '#fff' : 'transparent'}; color:white; padding:5px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; text-align:left; box-shadow: ${(p.color === '#10b981') ? '0 0 0 2px #10b981' : 'none'}">🟩 Olumsuz</button>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px; flex:2;">
+                                <button type="button" class="pn-color-preset ${p.color === '#ffffff' ? 'active' : ''}" onclick="app.setPnQuickColor(this, '#ffffff')" style="background:#ffffff; border:2px solid ${(p.color === '#ffffff') ? '#fff' : '#cbd5e1'}; color:#1e293b; padding:5px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; text-align:left; box-shadow: ${(p.color === '#ffffff') ? '0 0 0 2px #cbd5e1' : 'none'}">⬜ Normal</button>
+                                <button type="button" class="pn-color-preset ${p.color === '#10b981' ? 'active' : ''}" onclick="app.setPnQuickColor(this, '#10b981')" style="background:#10b981; border:2px solid ${(p.color === '#10b981') ? '#fff' : 'transparent'}; color:white; padding:5px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; text-align:left; box-shadow: ${(p.color === '#10b981') ? '0 0 0 2px #10b981' : 'none'}">🟩 Çok iyi</button>
+                                <button type="button" class="pn-color-preset ${p.color === '#3b82f6' ? 'active' : ''}" onclick="app.setPnQuickColor(this, '#3b82f6')" style="background:#3b82f6; border:2px solid ${(p.color === '#3b82f6') ? '#fff' : 'transparent'}; color:white; padding:5px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; text-align:left; box-shadow: ${(p.color === '#3b82f6') ? '0 0 0 2px #3b82f6' : 'none'}">🟦 İyi</button>
+                                <button type="button" class="pn-color-preset ${p.color === '#f59e0b' ? 'active' : ''}" onclick="app.setPnQuickColor(this, '#f59e0b')" style="background:#f59e0b; border:2px solid ${(p.color === '#f59e0b') ? '#fff' : 'transparent'}; color:white; padding:5px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600; text-align:left; box-shadow: ${(p.color === '#f59e0b') ? '0 0 0 2px #f59e0b' : 'none'}">🟨 Yeni</button>
                             </div>
                         </div>
                     </div>
@@ -2726,6 +2726,7 @@ class App {
             this.renderTodos();
         });
     }
+
     setPnQuickColor(btn, color) {
         document.getElementById('pnColor').value = color;
         // Reset all pn presets
