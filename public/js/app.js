@@ -67,6 +67,13 @@ class App {
             this.logEnd = this.today;
             this.logUser = 'all';
 
+            // Analysis Filter Defaults (This Month)
+            this.anaStart = this.lStart;
+            this.anaEnd = this.lEnd;
+            this.anaColorFilter = 'all';
+            this.anaSortKey = 'success';
+            this.anaSortDir = 'desc';
+
             this.cache = {
                 personnel: this.store.get('personnel') || [],
                 settings: this.store.get('settings') || { vat: 20, commission: 5, reklam: 0, rowCount: 25 },
@@ -78,8 +85,8 @@ class App {
                 definitions: this.store.get('definitions') || { income: [], expense: [], bank: [] },
                 transactions: this.store.get('transactions') || [],
                 permissions: this.store.get('permissions') || {
-                    admin: ['main', 'finance', 'personnel', 'users', 'definitions', 'permissions', 'settings'],
-                    user: ['main', 'finance', 'settings']
+                    admin: ['main', 'finance', 'personnel', 'users', 'definitions', 'permissions', 'settings', 'analysis', 'customers', 'actionLogs'],
+                    user: ['main', 'finance', 'settings', 'analysis']
                 },
                 leaves: this.store.get('leaves') || {},
                 activeShift: this.store.get('activeShift') || null,
@@ -98,6 +105,18 @@ class App {
             if (!this.cache.definitions.income) this.cache.definitions.income = [];
             if (!this.cache.definitions.expense) this.cache.definitions.expense = [];
             if (!this.cache.definitions.bank) this.cache.definitions.bank = [];
+
+            // Robust check/Migration for Permissions
+            if (this.cache.permissions.admin && !this.cache.permissions.admin.includes('analysis')) {
+                const newAdmin = [...new Set([...this.cache.permissions.admin, 'analysis', 'customers', 'actionLogs'])];
+                this.cache.permissions.admin = newAdmin;
+                this.store.set('permissions', this.cache.permissions);
+            }
+            if (this.cache.permissions.user && !this.cache.permissions.user.includes('analysis')) {
+                const newUser = [...new Set([...this.cache.permissions.user, 'analysis'])];
+                this.cache.permissions.user = newUser;
+                this.store.set('permissions', this.cache.permissions);
+            }
 
             this.cache.personNotes = this.store.get('personNotes', {});
 
@@ -397,6 +416,7 @@ class App {
         else if (view === 'permissions') this.renderPermissions();
         else if (view === 'customers') this.renderCustomers();
         else if (view === 'actionLogs') this.renderActionLogs();
+        else if (view === 'analysis') this.renderAnalysis();
     }
 
     renderBase() {
@@ -420,6 +440,7 @@ class App {
                         ${this.cache.permissions[this.user.role].includes('finance') ? `<button class="${this.currentView === 'finance' ? 'active' : ''}" onclick="app.showView('finance')">Hesap Detay</button>` : ''}
                         ${this.cache.permissions[this.user.role].includes('personnel') ? `<button class="${this.currentView === 'personnel' ? 'active' : ''}" onclick="app.showView('personnel')">Personeller</button>` : ''}
                         ${this.cache.permissions[this.user.role].includes('customers') ? `<button class="${this.currentView === 'customers' ? 'active' : ''}" onclick="app.showView('customers')">Müşteriler</button>` : ''}
+                        ${this.cache.permissions[this.user.role].includes('analysis') ? `<button class="${this.currentView === 'analysis' ? 'active' : ''}" onclick="app.showView('analysis')">Analiz</button>` : ''}
                         
                         <div class="dropdown">
                             <button class="${['users', 'definitions', 'permissions', 'settings', 'actionLogs'].includes(this.currentView) ? 'active' : ''}">Yönetim ▾</button>
@@ -765,7 +786,7 @@ class App {
                     }
 
                     // Search Highlight (Turkish Locale Aware)
-                    if (this.searchQuery && (rec.name.toLocaleLowerCase('tr-TR').includes(this.searchQuery) || (rec.desc && rec.desc.toLocaleLowerCase('tr-TR').includes(this.searchQuery)))) {
+                    if (this.searchQuery && (rec.name.trim().toLocaleLowerCase('tr-TR').startsWith(this.searchQuery) || (rec.desc && rec.desc.trim().toLocaleLowerCase('tr-TR').startsWith(this.searchQuery)))) {
                         td.style.backgroundColor = '#fde68a'; // Light amber background
                         td.style.boxShadow = 'inset 0 0 0 1px #f59e0b'; // Amber border
                         td.style.fontWeight = 'bold';
@@ -1034,8 +1055,8 @@ class App {
                     const q = e.target.value.toLocaleLowerCase('tr-TR');
                     const rows = document.querySelectorAll('#pTableBody tr');
                     rows.forEach(row => {
-                        const text = row.innerText.toLocaleLowerCase('tr-TR');
-                        row.style.display = text.includes(q) ? '' : 'none';
+                        const text = row.innerText.trim().toLocaleLowerCase('tr-TR');
+                        row.style.display = text.startsWith(q) ? '' : 'none';
                     });
                 };
             }
@@ -1109,8 +1130,8 @@ class App {
         const sq = this.customersSearchQuery;
         if (sq) {
             filtered = filtered.filter(c => {
-                const text = (c.name + ' ' + (c.phone || '') + ' ' + (c.address || '') + ' ' + (c.notes || '')).toLocaleLowerCase('tr-TR');
-                return text.includes(sq);
+                const nameText = (c.name || '').toLocaleLowerCase('tr-TR');
+                return nameText.startsWith(sq.toLocaleLowerCase('tr-TR'));
             });
         }
 
@@ -1660,8 +1681,8 @@ class App {
         let hasVisible = false;
 
         options.forEach(opt => {
-            const text = opt.innerText.toLocaleLowerCase('tr-TR');
-            if (text.includes(q)) {
+            const text = opt.innerText.trim().toLocaleLowerCase('tr-TR');
+            if (text.startsWith(q)) {
                 opt.style.display = 'block';
                 hasVisible = true;
             } else {
@@ -1763,6 +1784,287 @@ class App {
         this.logUser = document.getElementById('lu_log').value;
         this.showView('actionLogs');
     }
+
+    setAnalysisFilter() {
+        this.anaStart = document.getElementById('as_ana').value;
+        this.anaEnd = document.getElementById('ae_ana').value;
+        this.renderAnalysis();
+    }
+
+    setAnalysisColorFilter(color) {
+        this.anaColorFilter = color;
+        this.renderAnalysis();
+    }
+
+    sortAnalysisTable(key) {
+        if (this.anaSortKey === key) {
+            this.anaSortDir = this.anaSortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.anaSortKey = key;
+            this.anaSortDir = 'desc';
+        }
+        this.renderAnalysis();
+    }
+
+    renderAnalysis() {
+        const pStats = {};
+        this.cache.personnel.forEach(p => {
+            pStats[p.id] = { 
+                id: p.id,
+                name: p.alias || p.name, 
+                total: 0, 
+                success: 0, 
+                returns: 0, 
+                yesterday: 0, 
+                negative: 0, 
+                cancel: 0, 
+                revenue: 0 
+            };
+        });
+
+        let globalTotal = 0;
+        let globalSuccess = 0;
+        let globalCancel = 0;
+        const canceledList = [];
+        const transferredList = [];
+
+        // Process Records
+        Object.keys(this.cache.records)
+            .filter(d => d >= this.anaStart && d <= this.anaEnd)
+            .forEach(date => {
+                const day = this.cache.records[date] || [];
+                day.forEach(rec => {
+                    const pid = rec.personnelId;
+                    if (pid && pStats[pid]) {
+                        pStats[pid].total++;
+                        pStats[pid].revenue += (rec.amount || 0);
+                        globalTotal++;
+
+                        // Color Logic: Sarı(Olumlu), Yeşil(Olumsuz), Kırmızı(Dönüş), Mavi(Dünden)
+                        if (rec.color === '#f59e0b') { pStats[pid].success++; globalSuccess++; } // Sarı
+                        else if (rec.color === '#ff5c5c') pStats[pid].returns++; // Kırmızı
+                        else if (rec.color === '#3b82f6') pStats[pid].yesterday++; // Mavi
+                        else if (rec.color === '#10b981') pStats[pid].negative++; // Yeşil
+                    }
+
+                    // Cancel/Transfer tracking from Log
+                    if (rec.transferLog) {
+                        rec.transferLog.forEach(log => {
+                            if (log.date.split('T')[0] >= this.anaStart && log.date.split('T')[0] <= this.anaEnd) {
+                                // Find person by name
+                                const fromP = this.cache.personnel.find(p => (p.alias || p.name) === log.from);
+                                if (fromP && pStats[fromP.id]) {
+                                    pStats[fromP.id].cancel++;
+                                    globalCancel++;
+                                }
+
+                                if (!log.to || log.to === 'Personel Seçilmedi') {
+                                    canceledList.push({ date: log.date, customer: rec.name, from: log.from, note: log.note, user: log.user });
+                                } else {
+                                    transferredList.push({ date: log.date, customer: rec.name, from: log.from, to: log.to, note: log.note, user: log.user });
+                                }
+                            }
+                        });
+                    }
+                });
+            });
+
+        // Sorting Logic
+        const sortedPersonnel = Object.values(pStats).sort((a,b) => {
+            let valA = a[this.anaSortKey];
+            let valB = b[this.anaSortKey];
+            
+            // Handle success rate sorting
+            if (this.anaSortKey === 'rate') {
+                valA = a.total > 0 ? (a.success / a.total) : 0;
+                valB = b.total > 0 ? (b.success / b.total) : 0;
+            }
+
+            if (typeof valA === 'string') {
+                return this.anaSortDir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+            }
+            return this.anaSortDir === 'asc' ? valA - valB : valB - valA;
+        });
+
+        const successRate = globalTotal > 0 ? Math.round((globalSuccess / globalTotal) * 100) : 0;
+
+        document.getElementById('mainContent').innerHTML = `
+            <div class="admin-view" style="padding:20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:25px; flex-wrap:wrap; gap:15px;">
+                    <h2 style="margin:0; font-family:'Outfit';">Operasyonel Analiz Grifi\u011fi</h2>
+                    <div style="display:flex; gap:10px; align-items:center; background:var(--bg-card); padding:10px; border-radius:10px; border:1px solid var(--border-color);">
+                        <input type="date" id="as_ana" value="${this.anaStart}" style="background:var(--bg-input); color:white; border:1px solid var(--border-color); padding:5px 8px; border-radius:6px; font-size:12px;">
+                        <span style="color:var(--text-dim)">\u279c</span>
+                        <input type="date" id="ae_ana" value="${this.anaEnd}" style="background:var(--bg-input); color:white; border:1px solid var(--border-color); padding:5px 8px; border-radius:6px; font-size:12px;">
+                        <button class="btn-primary" onclick="app.setAnalysisFilter()" style="padding:6px 15px; font-size:12px;">Filtrele</button>
+                    </div>
+                </div>
+
+                <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:20px; margin-bottom:30px;">
+                    <div class="stat-card" style="border-bottom:4px solid #f59e0b; text-align:center;">
+                        <h3 style="font-size:12px; color:var(--text-dim); margin-bottom:10px;">GENEL BA\u015eARI ORANI</h3>
+                        <div style="font-size:28px; font-weight:bold; color:#f59e0b;">%${successRate}</div>
+                        <small style="color:var(--text-dim); font-size:10px;">(Sarı Kayıtlar / Toplam)</small>
+                    </div>
+                    <div class="stat-card" style="border-bottom:4px solid #ef4444; text-align:center;">
+                        <h3 style="font-size:12px; color:var(--text-dim); margin-bottom:10px;">TOPLAM \u0130PTAL / AKTARIM</h3>
+                        <div style="font-size:28px; font-weight:bold; color:#ef4444;">${globalCancel}</div>
+                        <small style="color:var(--text-dim); font-size:10px;">(El De\u011fi\u015ftiren Kay\u0131tlar)</small>
+                    </div>
+                    <div class="stat-card" style="border-bottom:4px solid #3b82f6; text-align:center;">
+                        <h3 style="font-size:12px; color:var(--text-dim); margin-bottom:10px;">TOPLAM \u0130\u015eLEM ADED\u0130</h3>
+                        <div style="font-size:28px; font-weight:bold; color:#3b82f6;">${globalTotal}</div>
+                        <small style="color:var(--text-dim); font-size:10px;">(T\u00fcm Personeller)</small>
+                    </div>
+                    <div class="stat-card" style="border-bottom:4px solid #10b981; text-align:center;">
+                        <h3 style="font-size:12px; color:var(--text-dim); margin-bottom:10px;">EN VER\u0130ML\u0130 PERSONEL</h3>
+                        <div style="font-size:18px; font-weight:bold; color:#10b981; margin-top:5px;">${sortedPersonnel.sort((a,b) => (b.total>0?(b.success/b.total):0) - (a.total>0?(a.success/a.total):0))[0]?.name || '-'}</div>
+                        <small style="color:var(--text-dim); font-size:10px;">(Ba\u015far\u0131 oran\u0131 en y\u00fcksek)</small>
+                    </div>
+                </div>
+
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:25px; margin-bottom:30px;">
+                    <div class="excel-wrapper" style="background:var(--bg-card); padding:20px; border-radius:12px; border:1px solid var(--border-color);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                            <h3 style="margin:0; font-size:16px; font-family:'Outfit';">Personel Performans Liderli\u011fi</h3>
+                            <select onchange="app.setAnalysisColorFilter(this.value)" style="background:var(--bg-input); color:white; border:1px solid var(--border-color); padding:4px 8px; border-radius:6px; font-size:11px;">
+                                <option value="all" ${this.anaColorFilter === 'all' ? 'selected' : ''}>T\u00fcm Renkler</option>
+                                <option value="success" ${this.anaColorFilter === 'success' ? 'selected' : ''}>\ud83d\udfe8 Sarı (Olumlu)</option>
+                                <option value="negative" ${this.anaColorFilter === 'negative' ? 'selected' : ''}>\ud83d\udfe9 Yeşil (Olumsuz)</option>
+                                <option value="yesterday" ${this.anaColorFilter === 'yesterday' ? 'selected' : ''}>\ud83d\udfe6 Mavi (Dünden)</option>
+                                <option value="returns" ${this.anaColorFilter === 'returns' ? 'selected' : ''}>\ud83d\udfe5 Kırmızı (Dönüş)</option>
+                            </select>
+                        </div>
+                        ${sortedPersonnel.map(p => {
+                            let rate = 0;
+                            if (this.anaColorFilter === 'all') rate = p.total > 0 ? Math.round((p.success / p.total) * 100) : 0;
+                            else rate = p.total > 0 ? Math.round((p[this.anaColorFilter] / p.total) * 100) : 0;
+                            
+                            let barColor = 'linear-gradient(90deg, #f59e0b, #fbbf24)';
+                            if (this.anaColorFilter === 'negative') barColor = 'linear-gradient(90deg, #10b981, #34d399)';
+                            if (this.anaColorFilter === 'yesterday') barColor = 'linear-gradient(90deg, #3b82f6, #60a5fa)';
+                            if (this.anaColorFilter === 'returns') barColor = 'linear-gradient(90deg, #ef4444, #f87171)';
+
+                            return `
+                                <div style="margin-bottom:15px;">
+                                    <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:5px;">
+                                        <span style="font-weight:bold;">${p.name}</span>
+                                        <span style="color:var(--accent-color); font-weight:bold;">%${rate} Oran</span>
+                                    </div>
+                                    <div style="height:8px; background:rgba(255,255,255,0.05); border-radius:4px; overflow:hidden;">
+                                        <div style="width:${rate}%; height:100%; background:${barColor}; border-radius:4px; transition: width 0.5s ease;"></div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+
+                    <div class="excel-wrapper" style="background:var(--bg-card); padding:20px; border-radius:12px; border:1px solid var(--border-color);">
+                        <h3 style="margin-top:0; margin-bottom:20px; font-size:16px; font-family:'Outfit';">Detayl\u0131 Kar\u015f\u0131la\u015ft\u0131rma</h3>
+                        <table class="excel-table" style="width:100%; font-size:11px;">
+                            <thead>
+                                <tr>
+                                    <th onclick="app.sortAnalysisTable('name')" style="text-align:left; cursor:pointer;">Personel ${this.anaSortKey === 'name' ? (this.anaSortDir === 'asc' ? '▲' : '▼') : ''}</th>
+                                    <th onclick="app.sortAnalysisTable('total')" style="cursor:pointer;">Toplam ${this.anaSortKey === 'total' ? (this.anaSortDir === 'asc' ? '▲' : '▼') : ''}</th>
+                                    <th onclick="app.sortAnalysisTable('success')" style="color:#f59e0b; cursor:pointer;">Sarı (Olumlu) ${this.anaSortKey === 'success' ? (this.anaSortDir === 'asc' ? '▲' : '▼') : ''}</th>
+                                    <th onclick="app.sortAnalysisTable('negative')" style="color:#10b981; cursor:pointer;">Yeşil (Olumsuz) ${this.anaSortKey === 'negative' ? (this.anaSortDir === 'asc' ? '▲' : '▼') : ''}</th>
+                                    <th onclick="app.sortAnalysisTable('yesterday')" style="color:#3b82f6; cursor:pointer;">Mavi (Dünden) ${this.anaSortKey === 'yesterday' ? (this.anaSortDir === 'asc' ? '▲' : '▼') : ''}</th>
+                                    <th onclick="app.sortAnalysisTable('returns')" style="color:#ef4444; cursor:pointer;">Kırmızı (Dönüş) ${this.anaSortKey === 'returns' ? (this.anaSortDir === 'asc' ? '▲' : '▼') : ''}</th>
+                                    <th onclick="app.sortAnalysisTable('cancel')" style="color:#f43f5e; cursor:pointer;">\u0130ptal ${this.anaSortKey === 'cancel' ? (this.anaSortDir === 'asc' ? '▲' : '▼') : ''}</th>
+                                    <th onclick="app.sortAnalysisTable('revenue')" style="cursor:pointer;">Br\u00fct Ciro ${this.anaSortKey === 'revenue' ? (this.anaSortDir === 'asc' ? '▲' : '▼') : ''}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${sortedPersonnel.map(p => `
+                                    <tr>
+                                        <td style="text-align:left; font-weight:bold;">${p.name}</td>
+                                        <td>${p.total}</td>
+                                        <td style="font-weight:bold; color:#f59e0b;">${p.success}</td>
+                                        <td style="font-weight:bold; color:#10b981;">${p.negative}</td>
+                                        <td style="font-weight:bold; color:#3b82f6;">${p.yesterday}</td>
+                                        <td style="font-weight:bold; color:#ef4444;">${p.returns}</td>
+                                        <td style="font-weight:bold; color:#f43f5e;">${p.cancel}</td>
+                                        <td style="font-weight:bold;">${this.formatNum(p.revenue)} TL</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:25px;">
+                    <div class="excel-wrapper" style="background:var(--bg-card); padding:20px; border-radius:12px; border:1px solid var(--border-color);">
+                        <h3 style="margin-top:0; margin-bottom:15px; font-size:16px; font-family:'Outfit';">\ud83d\udeab Personel Bazl\u0131 \u0130ptal Say\u0131lar\u0131</h3>
+                        <table class="excel-table" style="width:100%; font-size:11px; margin-bottom:20px;">
+                            <thead>
+                                <tr>
+                                    <th style="text-align:left;">Personel</th>
+                                    <th style="width:100px;">\u0130ptal Say\u0131s\u0131</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${(() => {
+                                    const summary = {};
+                                    canceledList.forEach(l => { summary[l.from] = (summary[l.from] || 0) + 1; });
+                                    return Object.entries(summary).sort((a,b) => b[1] - a[1]).map(([name, count]) => `
+                                        <tr>
+                                            <td style="text-align:left; font-weight:bold;">${name}</td>
+                                            <td style="font-weight:bold; color:#ef4444;">${count}</td>
+                                        </tr>
+                                    `).join('') || '<tr><td colspan="2" style="padding:20px; color:var(--text-dim);">\u0130ptal kayd\u0131 yok.</td></tr>';
+                                })()}
+                            </tbody>
+                        </table>
+
+                        <h3 style="margin-top:20px; margin-bottom:10px; font-size:14px; font-family:'Outfit'; color:var(--text-dim);">\u0130ptal Detaylar\u0131</h3>
+                        <table class="excel-table" style="width:100%; font-size:10px;">
+                            <thead>
+                                <tr>
+                                    <th>Tarih</th>
+                                    <th>M\u00fc\u015fteri</th>
+                                    <th>\u0130ptal Notu</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${canceledList.sort((a,b) => b.date.localeCompare(a.date)).map(l => `
+                                    <tr>
+                                        <td>${l.date.split('T')[0].split('-').reverse().join('.')}</td>
+                                        <td style="font-weight:bold;">${l.customer}</td>
+                                        <td style="max-width:150px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${l.note || ''}">${l.note || '-'}</td>
+                                    </tr>
+                                `).join('') || '<tr><td colspan="3" style="padding:20px; color:var(--text-dim);">Detay yok.</td></tr>'}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="excel-wrapper" style="background:var(--bg-card); padding:20px; border-radius:12px; border:1px solid var(--border-color);">
+                        <h3 style="margin-top:0; margin-bottom:15px; font-size:16px; font-family:'Outfit';">\ud83d\udd04 \u0130ptalden Aktar\u0131lan Personel Raporu</h3>
+                        <table class="excel-table" style="width:100%; font-size:10px;">
+                            <thead>
+                                <tr>
+                                    <th>Tarih</th>
+                                    <th>M\u00fc\u015fteri</th>
+                                    <th>Eski Pers.</th>
+                                    <th>Yeni Pers.</th>
+                                    <th>Aktar\u0131m Notu</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${transferredList.sort((a,b) => b.date.localeCompare(a.date)).map(l => `
+                                    <tr>
+                                        <td>${l.date.split('T')[0].split('-').reverse().join('.')}</td>
+                                        <td style="font-weight:bold;">${l.customer}</td>
+                                        <td style="color:#ef4444;">${l.from}</td>
+                                        <td style="color:#10b981;">${l.to}</td>
+                                        <td style="max-width:150px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${l.note || ''}">${l.note || '-'}</td>
+                                    </tr>
+                                `).join('') || '<tr><td colspan="5" style="padding:20px; color:var(--text-dim);">Aktar\u0131m kayd\u0131 yok.</td></tr>'}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>`;
+    }
     // ============ END LOG MODULE ============
 
     renderFinance() {
@@ -1776,10 +2078,14 @@ class App {
             .filter(d => !filteredTrans.some(t => t.date === d && t.category === 'Günlük Ciro'))
             .reduce((sum, date) => sum + (this.cache.records[date] || []).reduce((a, b) => a + b.amount, 0), 0);
 
-        const otherIncome = filteredTrans.filter(t => t.type === 'income').reduce((a, b) => a + b.amount, 0);
-        const totalExpense = filteredTrans.filter(t => t.type === 'expense').reduce((a, b) => a + b.amount, 0);
-        const totalIncome = dailyGridsIncome + otherIncome;
-        const balance = totalIncome - totalExpense;
+        const activeIncomeTrans = filteredTrans.filter(t => t.type === 'income' && !t.excludeFromNetCash).reduce((a, b) => a + b.amount, 0);
+        const excludedIncomeTrans = filteredTrans.filter(t => t.type === 'income' && t.excludeFromNetCash).reduce((a, b) => a + b.amount, 0);
+        const activeExpenseTrans = filteredTrans.filter(t => t.type === 'expense' && !t.excludeFromNetCash).reduce((a, b) => a + b.amount, 0);
+        const excludedExpenseTrans = filteredTrans.filter(t => t.type === 'expense' && t.excludeFromNetCash).reduce((a, b) => a + b.amount, 0);
+        const waitingRecordsTotal = (this.cache.waitingRecords || []).reduce((a, b) => a + b.amount, 0);
+        const allOtherIncome = activeIncomeTrans + excludedIncomeTrans - excludedExpenseTrans;
+        const totalIncome = dailyGridsIncome + allOtherIncome + waitingRecordsTotal;
+        const balance = (dailyGridsIncome + activeIncomeTrans + waitingRecordsTotal) - activeExpenseTrans;
 
         // Calculate KDV and Commission from daily records in range
         const vatRate = this.cache.settings.vat;
@@ -1800,10 +2106,17 @@ class App {
                     totalFatura += net;
                     if (rec.bank && rec.bank !== '-') {
                         const bName = rec.bank.trim().toLocaleUpperCase('tr-TR');
-                        bankTotals[bName] = (bankTotals[bName] || 0) + net;
+                        bankTotals[bName] = (bankTotals[bName] || 0) + rec.amount;
                     }
                 });
             });
+            
+        (this.cache.waitingRecords || []).forEach(rec => {
+            if (rec.bank && rec.bank !== '-') {
+                const bName = rec.bank.trim().toLocaleUpperCase('tr-TR');
+                bankTotals[bName] = (bankTotals[bName] || 0) + rec.amount;
+            }
+        });
 
         document.getElementById('mainContent').innerHTML = `
             <div class="admin-view">
@@ -1828,11 +2141,11 @@ class App {
                     <div class="stat-card" style="border-bottom:4px solid #3b82f6">
                         <h3>Toplam Gelir</h3>
                         <p style="color:#3b82f6">${this.formatNum(totalIncome)} TL</p>
-                        <small style="color:var(--text-dim); font-size:10px;">(Ciro: ${this.formatNum(otherIncome)} + Bekleyen: ${this.formatNum(dailyGridsIncome)})</small>
+                        <small style="color:var(--text-dim); font-size:10px;">(İşlemler: ${this.formatNum(allOtherIncome)} | Günlükler: ${this.formatNum(dailyGridsIncome)} | Bekleyen: ${this.formatNum(waitingRecordsTotal)})</small>
                     </div>
                     <div class="stat-card" style="border-bottom:4px solid var(--danger-color)">
                         <h3>Toplam Gider</h3>
-                        <p style="color:var(--danger-color)">${this.formatNum(totalExpense)} TL</p>
+                        <p style="color:var(--danger-color)">${this.formatNum(activeExpenseTrans)} TL</p>
                     </div>
                     <div class="stat-card" style="border-bottom:4px solid #f59e0b">
                         <h3>Toplam KDV (%${vatRate})</h3>
@@ -1885,6 +2198,7 @@ class App {
                                     </td>
                                     <td style="font-size:11px; color:var(--text-dim);">${t.user || 'Sistem'}</td>
                                     <td>
+                                        <button class="btn-mini" style="background:#3b82f6" onclick="app.showTransactionModal(${t.id})">Düzenle</button>
                                         <button class="btn-mini" style="background:var(--danger-color)" onclick="app.deleteTransaction(${t.id})">Sil</button>
                                     </td>
                                 </tr>
@@ -1901,72 +2215,92 @@ class App {
         this.renderFinance();
     }
 
-    showTransactionModal() {
+    showTransactionModal(editId = null) {
         const ov = document.getElementById('modalOverlay');
         ov.classList.remove('hidden');
+        let rec = null;
+        if (editId) {
+            rec = this.cache.transactions.find(t => t.id === editId);
+        }
+        
         ov.innerHTML = `
             <div class="modal-content">
-                <h2>Yeni İşlem Kaydı</h2>
+                <h2>${rec ? '\u0130\u015flem Kayd\u0131n\u0131 D\u00fczenle' : 'Yeni \u0130\u015flem Kayd\u0131'}</h2>
                 <form id="tForm">
+                    <input type="hidden" id="tEditId" value="${rec ? rec.id : ''}">
                     <div class="form-row">
                         <div class="form-group">
-                            <label>İşlem Türü</label>
+                            <label>\u0130\u015flem T\u00fcr\u00fc</label>
                             <select id="tt" onchange="app.updateCategoryOptions()">
-                                <option value="expense">Gider (-)</option>
-                                <option value="income">Gelir (+)</option>
+                                <option value="expense" ${rec && rec.type === 'expense' ? 'selected' : ''}>Gider (-)</option>
+                                <option value="income" ${rec && rec.type === 'income' ? 'selected' : ''}>Gelir (+)</option>
                             </select>
                         </div>
                         <div class="form-group">
                             <label>Tarih</label>
-                            <input type="date" id="td" value="${this.today}" required>
+                            <input type="date" id="td" value="${rec ? rec.date : this.today}" required>
                         </div>
                     </div>
+                    <div class="form-group" style="margin-top:10px;">
+                        <label style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="tExc" ${rec && rec.excludeFromNetCash ? 'checked' : ''}> Net Kasaya Dahil Edilmesin
+                        </label>
+                    </div>
                     <div class="form-group">
-                        <label>Tanımlı Kalem / Kategori</label>
+                        <label>Tan\u0131ml\u0131 Kalem / Kategori</label>
                         <select id="tc" required></select>
                     </div>
                     <div class="form-group">
                         <label>Tutar</label>
-                        <input type="number" step="0.01" id="ta" required placeholder="0.00">
+                        <input type="number" step="0.01" id="ta" required placeholder="0.00" value="${rec ? rec.amount : ''}">
                     </div>
                     <div class="form-group">
-                        <label>Açıklama (Opsiyonel)</label>
-                        <textarea id="tx" rows="2" style="width:100%; border-radius:6px; padding:8px;"></textarea>
+                        <label>A\u00e7\u0131klama (Opsiyonel)</label>
+                        <textarea id="tx" rows="2" style="width:100%; border-radius:6px; padding:8px;">${rec && rec.desc ? rec.desc : ''}</textarea>
                     </div>
                     <div class="modal-actions">
-                        <button type="button" class="btn-text" onclick="app.closeModal()">İptal</button>
+                        <button type="button" class="btn-text" onclick="app.closeModal()">\u0130ptal</button>
                         <button type="submit" class="btn-primary">Kaydet</button>
                     </div>
                 </form>
             </div>`;
-        this.updateCategoryOptions();
+        this.updateCategoryOptions(rec ? rec.category : null);
         document.getElementById('tForm').onsubmit = (e) => {
             e.preventDefault();
             this.saveTransaction();
         };
     }
 
-    updateCategoryOptions() {
+    updateCategoryOptions(selectedCat = null) {
         const type = document.getElementById('tt').value;
         const sel = document.getElementById('tc');
         const list = this.cache.definitions[type];
-        sel.innerHTML = list.map(c => `<option value="${c}">${c}</option>`).join('') || '<option value="">Önce kategori tanımlayın</option>';
+        sel.innerHTML = list.map(c => `<option value="${c}" ${selectedCat === c ? 'selected' : ''}>${c}</option>`).join('') || '<option value="">Önce kategori tanımlayın</option>';
     }
 
     saveTransaction() {
+        const editId = document.getElementById('tEditId').value;
         const data = {
-            id: Date.now(),
+            id: editId ? parseInt(editId) : Date.now(),
             type: document.getElementById('tt').value,
             date: document.getElementById('td').value,
             category: document.getElementById('tc').value.toLocaleUpperCase('tr-TR'),
             amount: parseFloat(document.getElementById('ta').value),
+            excludeFromNetCash: document.getElementById('tExc') ? document.getElementById('tExc').checked : false,
             desc: document.getElementById('tx').value.toLocaleUpperCase('tr-TR'),
             user: this.user.name
         };
-        if (!data.category) return this.showToast('Lütfen bir kategori seçin.', 'error');
-        this.cache.transactions.push(data);
+        if (!data.category) return this.showToast('L\u00fctfen bir kategori se\u00e7in.', 'error');
+        
+        if (editId) {
+            const idx = this.cache.transactions.findIndex(t => t.id === parseInt(editId));
+            if (idx > -1) this.cache.transactions[idx] = data;
+        } else {
+            this.cache.transactions.push(data);
+        }
+        
         this.store.set('transactions', this.cache.transactions);
-        this.logAction(`Yeni Finans Kaydı: ${data.type.toUpperCase()} - ${data.category} (${data.amount} TL)`);
+        this.logAction(editId ? `Finans Kayd\u0131 D\u00fczenlendi: ${data.category} (${data.amount} TL)` : `Yeni Finans Kayd\u0131: ${data.type.toUpperCase()} - ${data.category} (${data.amount} TL)`);
         this.closeModal();
         this.renderFinance();
     }
@@ -1995,6 +2329,7 @@ class App {
                         ${this.cache.definitions.expense.map((d, i) => `
                             <div class="todo-item" style="background:var(--bg-input); padding:10px;">
                                 <span style="flex:1;">${d}</span>
+                                <button class="btn-item-del" onclick="app.editDef('expense', ${i})" style="color:#3b82f6; margin-right:5px; background:transparent; border:none; cursor:pointer;" title="Düzenle">✎</button>
                                 <button class="btn-item-del" onclick="app.remDef('expense', ${i})">\u00d7</button>
                             </div>
                         `).join('') || '<div style="color:var(--text-dim)">Tan\u0131m yok.</div>'}
@@ -2012,6 +2347,7 @@ class App {
                         ${this.cache.definitions.income.map((d, i) => `
                             <div class="todo-item" style="background:var(--bg-input); padding:10px;">
                                 <span style="flex:1;">${d}</span>
+                                <button class="btn-item-del" onclick="app.editDef('income', ${i})" style="color:#3b82f6; margin-right:5px; background:transparent; border:none; cursor:pointer;" title="Düzenle">✎</button>
                                 <button class="btn-item-del" onclick="app.remDef('income', ${i})">\u00d7</button>
                             </div>
                         `).join('') || '<div style="color:var(--text-dim)">Tan\u0131m yok.</div>'}
@@ -2029,6 +2365,7 @@ class App {
                         ${(this.cache.definitions.bank || []).map((d, i) => `
                             <div class="todo-item" style="background:var(--bg-input); padding:10px;">
                                 <span style="flex:1;">${d}</span>
+                                <button class="btn-item-del" onclick="app.editDef('bank', ${i})" style="color:#3b82f6; margin-right:5px; background:transparent; border:none; cursor:pointer;" title="Düzenle">✎</button>
                                 <button class="btn-item-del" onclick="app.remDef('bank', ${i})">\u00d7</button>
                             </div>
                         `).join('') || '<div style="color:var(--text-dim)">Tan\u0131m yok.</div>'}
@@ -2050,6 +2387,20 @@ class App {
             this.renderDefinitions();
             this.showToast('Tanım kaydedildi.', 'success');
         }
+    }
+
+    editDef(type, i) {
+        const titleDict = { expense: 'Gider', income: 'Gelir', bank: 'Banka' };
+        const oldVal = this.cache.definitions[type][i];
+        
+        this.showInputModal(titleDict[type] + ' Tanımı Düzenle', oldVal, (val) => {
+            if (val && val.trim() !== '') {
+                this.cache.definitions[type][i] = val.trim().toLocaleUpperCase('tr-TR');
+                this.store.set('definitions', this.cache.definitions);
+                this.renderDefinitions();
+                this.showToast('Tanım güncellendi.', 'success');
+            }
+        }, false);
     }
 
     remDef(type, i) {
@@ -2883,6 +3234,23 @@ class App {
                             </div>
                         </div>
                     </div>
+                    <div class="form-group" style="margin-top:10px; padding:10px; background:var(--bg-nav); border:1px solid var(--border-color); border-radius:6px;">
+                        <label style="color:var(--accent-color); font-weight:bold; font-size:12px; display:block; margin-bottom:5px;">AKTARKIM / İPTAL NOTU (PERSONEL DEĞİŞİRSE)</label>
+                        <textarea id="rtNote" rows="1" placeholder="Neden değiştirildi / iptal edildi?" style="width:100%; border-radius:6px; padding:8px; border:1px solid var(--border-color); background:var(--bg-input); color:white;"></textarea>
+                    </div>
+                    ${rec?.transferLog && rec.transferLog.length > 0 ? `
+                        <div class="transfer-history" style="margin-top:15px; font-size:11px; max-height:100px; overflow-y:auto; padding:10px; background:rgba(0,0,0,0.1); border-radius:6px; border:1px solid var(--border-color);">
+                            <div style="font-weight:bold; color:var(--text-dim); margin-bottom:5px;">AKTARTIM GEÇMİŞİ</div>
+                            ${rec.transferLog.map(log => `
+                                <div style="margin-bottom:5px; padding-bottom:5px; border-bottom:1px solid rgba(255,255,255,0.05);">
+                                    <span style="color:var(--accent-color)">${log.date.split('T')[0].split('-').reverse().join('.')}</span>: 
+                                    <strong>${log.from || 'Yok'}</strong> ➔ <strong>${log.to || 'Yok'}</strong>
+                                    ${log.note ? `<br/><span style="color:var(--text-dim)">Not: ${log.note}</span>` : ''}
+                                    <br/><span style="font-size:9px; opacity:0.6">Yapan: ${log.user}</span>
+                                </div>
+                            `).reverse().join('')}
+                        </div>
+                    ` : ''}
                     <div class="modal-actions" style="display:flex; justify-content:space-between; align-items:center;">
                         <div>
                             ${rec ? `<button type="button" style="background:#fee2e2; color:#ef4444; border:1px solid #fecaca; padding:8px 16px; border-radius:8px; cursor:pointer; font-weight:600; font-size:13px;" onclick="app.deleteCurrentRecord(${pid ? "'" + pid + "'" : "null"}, ${idx !== null ? idx : "null"}, ${rec?._isWaiting ? 'true' : 'false'}, ${rec?._waitIdx !== undefined ? rec._waitIdx : 'null'})">🗑 Sil</button>` : ''}
@@ -2950,6 +3318,26 @@ class App {
             const isNoPerson = isWait && document.getElementById('isWaitingNoPerson').checked;
             const finalPersonnelId = isNoPerson ? null : (document.getElementById('run').value || null);
 
+            // Transfer / İptal Takibi
+            let currentTransferLog = rec?.transferLog ? [...rec.transferLog] : [];
+            const oldPid = rec?.personnelId || null;
+            if (rec && String(oldPid) !== String(finalPersonnelId)) {
+                const getPName = (id) => {
+                    if (!id) return 'Personel Seçilmedi';
+                    const p = this.cache.personnel.find(px => String(px.id) === String(id));
+                    return p ? (p.alias || p.name) : 'Bilinmeyen';
+                };
+                const tNote = document.getElementById('rtNote').value.trim();
+                currentTransferLog.push({
+                    date: new Date().toISOString(),
+                    from: getPName(oldPid),
+                    to: getPName(finalPersonnelId),
+                    note: tNote,
+                    user: this.user.name
+                });
+                this.logAction(`Personel Değişikliği/İptal: ${customerName} (${getPName(oldPid)} ➔ ${getPName(finalPersonnelId)}) ${tNote ? '- Not: ' + tNote : ''}`);
+            }
+
             // Bekleyenlere eklenmiyorsa personel seçimi zorunlu
             if (!isWait && !document.getElementById('run').value) {
                 return this.showToast('Lütfen bir personel seçiniz!', 'error');
@@ -2965,6 +3353,7 @@ class App {
                 endTime: document.getElementById('re').value,
                 bank: document.getElementById('rbank').value,
                 personnelId: finalPersonnelId,
+                transferLog: currentTransferLog,
                 _explicitNoPerson: isNoPerson,
                 user: rec?.user || this.user.name,
                 updatedBy: rec ? this.user.name : null
