@@ -70,8 +70,8 @@ class App {
             // Analysis Filter Defaults (This Month)
             this.anaStart = this.lStart;
             this.anaEnd = this.lEnd;
-            this.anaColorFilter = 'all';
-            this.anaSortKey = 'success';
+            this.anaColorFilter = 'returns';
+            this.anaSortKey = 'returns';
             this.anaSortDir = 'desc';
 
             this.cache = {
@@ -1916,10 +1916,10 @@ class App {
                         <div style="font-size:28px; font-weight:bold; color:#3b82f6;">${globalTotal}</div>
                         <small style="color:var(--text-dim); font-size:10px;">(T\u00fcm Personeller)</small>
                     </div>
-                    <div class="stat-card" style="border-bottom:4px solid #10b981; text-align:center;">
+                    <div class="stat-card" style="border-bottom:4px solid #ef4444; text-align:center;">
                         <h3 style="font-size:12px; color:var(--text-dim); margin-bottom:10px;">EN VER\u0130ML\u0130 PERSONEL</h3>
-                        <div style="font-size:18px; font-weight:bold; color:#10b981; margin-top:5px;">${sortedPersonnel.sort((a,b) => (b.total>0?(b.success/b.total):0) - (a.total>0?(a.success/a.total):0))[0]?.name || '-'}</div>
-                        <small style="color:var(--text-dim); font-size:10px;">(Ba\u015far\u0131 oran\u0131 en y\u00fcksek)</small>
+                        <div style="font-size:18px; font-weight:bold; color:#ef4444; margin-top:5px;">${sortedPersonnel.sort((a,b) => (b.total>0?(b.returns/b.total):0) - (a.total>0?(a.returns/a.total):0))[0]?.name || '-'}</div>
+                        <small style="color:var(--text-dim); font-size:10px;">(D\u00f6n\u00fc\u015f oran\u0131 en y\u00fcksek)</small>
                     </div>
                 </div>
 
