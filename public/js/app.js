@@ -2117,9 +2117,14 @@ class App {
         const activeExpenseTrans = filteredTrans.filter(t => t.type === 'expense' && !t.excludeFromNetCash).reduce((a, b) => a + b.amount, 0);
         const excludedExpenseTrans = filteredTrans.filter(t => t.type === 'expense' && t.excludeFromNetCash).reduce((a, b) => a + b.amount, 0);
         const waitingRecordsTotal = (this.cache.waitingRecords || []).reduce((a, b) => a + b.amount, 0);
-        const allOtherIncome = activeIncomeTrans + excludedIncomeTrans - excludedExpenseTrans;
-        const totalIncome = dailyGridsIncome + allOtherIncome + waitingRecordsTotal;
-        const balance = (dailyGridsIncome + activeIncomeTrans + waitingRecordsTotal) - activeExpenseTrans;
+        
+        // Use all transactions for Total Income (Income - Expense)
+        const totalManuelIncome = activeIncomeTrans + excludedIncomeTrans;
+        const totalManuelExpense = activeExpenseTrans + excludedExpenseTrans;
+        const netManuelTrans = totalManuelIncome - totalManuelExpense;
+        
+        const totalIncome = dailyGridsIncome + netManuelTrans + waitingRecordsTotal;
+        const balance = dailyGridsIncome + waitingRecordsTotal;
 
         // Calculate KDV and Commission from daily records in range
         const vatRate = this.cache.settings.vat;
@@ -2173,9 +2178,9 @@ class App {
                         <p>${this.formatNum(balance)} TL</p>
                     </div>
                     <div class="stat-card" style="border-bottom:4px solid #3b82f6">
-                        <h3>Toplam Gelir</h3>
+                        <h3>Toplam Gelir (Konsolide)</h3>
                         <p style="color:#3b82f6">${this.formatNum(totalIncome)} TL</p>
-                        <small style="color:var(--text-dim); font-size:10px;">(İşlemler: ${this.formatNum(allOtherIncome)} | Günlükler: ${this.formatNum(dailyGridsIncome)} | Bekleyen: ${this.formatNum(waitingRecordsTotal)})</small>
+                        <small style="color:var(--text-dim); font-size:10px;">(Grid: ${this.formatNum(dailyGridsIncome)} | İşlemler: ${this.formatNum(netManuelTrans)} | Bekleyen: ${this.formatNum(waitingRecordsTotal)})</small>
                     </div>
                     <div class="stat-card" style="border-bottom:4px solid var(--danger-color)">
                         <h3>Toplam Gider</h3>
