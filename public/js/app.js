@@ -742,6 +742,7 @@ class App {
         b.innerHTML = '';
         const totals = activeP.map(() => 0);
         const vatTotals = activeP.map(() => 0);
+        const customerCounts = activeP.map(() => 0);
         const count = this.cache.settings.rowCount || 25;
 
         for (let i = 0; i < count; i++) {
@@ -797,6 +798,7 @@ class App {
                     td.title = `${rec.name}${rec.desc ? ' - ' + rec.desc : ''}`;
                     totals[idx] += rec.amount;
                     vatTotals[idx] += (rec.amount - net);
+                    customerCounts[idx]++;
                 }
                 if (canEdit) {
                     td.onclick = () => this.showRecordModal(p.id, i, rec);
@@ -811,7 +813,7 @@ class App {
             b.appendChild(tr);
         }
 
-        this.renderFooter(totals, vatTotals, activeP, canEdit);
+        this.renderFooter(totals, vatTotals, customerCounts, activeP, canEdit);
         this.renderTodos();
     }
 
@@ -838,10 +840,11 @@ class App {
         }, true);
     }
 
-    renderFooter(totals, vatTotals, activeP, canEdit) {
+    renderFooter(totals, vatTotals, customerCounts, activeP, canEdit) {
         const f = document.getElementById('fRow');
         if (!f) return;
         const totalSum = totals.reduce((a, b) => a + b, 0);
+        const totalCount = customerCounts.reduce((a, b) => a + b, 0);
 
         // Commission Based on Fatura Kalan
         const vRate = this.cache.settings.vat;
@@ -865,6 +868,11 @@ class App {
         });
 
         f.innerHTML = `
+            <tr class="row-customer-count" style="background:rgba(255, 255, 255, 0.03); border-top: 1px solid var(--border-color);">
+                <td class="sticky-col" style="font-size:11px; color:var(--text-dim);">TOPLAM MÜŞTERİ SAYISI</td>
+                ${customerCounts.map(c => `<td style="font-weight:bold; color:var(--accent-color);">${c}</td>`).join('')}
+                <td style="background:var(--bg-nav); font-weight:bold; color:var(--accent-color);">${totalCount}</td>
+            </tr>
             <tr class="row-total">
                 <td class="sticky-col">TOPLAM (BRÜT)</td>
                 ${totals.map(t => `<td>${this.formatNum(t)}</td>`).join('')}
