@@ -1996,6 +1996,18 @@ class App {
                                     </tr>
                                 `).join('')}
                             </tbody>
+                            <tfoot style="background:rgba(255,255,255,0.05); font-weight:bold; border-top: 2px solid var(--border-color);">
+                                <tr>
+                                    <td style="text-align:left;">GENEL TOPLAM</td>
+                                    <td>${sortedPersonnel.reduce((s, p) => s + p.total, 0)}</td>
+                                    <td style="color:#f59e0b;">${sortedPersonnel.reduce((s, p) => s + p.success, 0)}</td>
+                                    <td style="color:#10b981;">${sortedPersonnel.reduce((s, p) => s + p.negative, 0)}</td>
+                                    <td style="color:#3b82f6;">${sortedPersonnel.reduce((s, p) => s + p.yesterday, 0)}</td>
+                                    <td style="color:#ef4444;">${sortedPersonnel.reduce((s, p) => s + p.returns, 0)}</td>
+                                    <td style="color:#f43f5e;">${sortedPersonnel.reduce((s, p) => s + p.cancel, 0)}</td>
+                                    <td>${this.formatNum(sortedPersonnel.reduce((s, p) => s + p.revenue, 0))} TL</td>
+                                </tr>
+                            </tfoot>
                         </table>
                     </div>
                 </div>
@@ -2014,12 +2026,26 @@ class App {
                                 ${(() => {
                                     const summary = {};
                                     canceledList.forEach(l => { summary[l.from] = (summary[l.from] || 0) + 1; });
-                                    return Object.entries(summary).sort((a,b) => b[1] - a[1]).map(([name, count]) => `
+                                    const sortedSummary = Object.entries(summary).sort((a,b) => b[1] - a[1]);
+                                    const grandCanceledTotal = sortedSummary.reduce((s, [_, count]) => s + count, 0);
+
+                                    let html = sortedSummary.map(([name, count]) => `
                                         <tr>
                                             <td style="text-align:left; font-weight:bold;">${name}</td>
                                             <td style="font-weight:bold; color:#ef4444;">${count}</td>
                                         </tr>
-                                    `).join('') || '<tr><td colspan="2" style="padding:20px; color:var(--text-dim);">\u0130ptal kayd\u0131 yok.</td></tr>';
+                                    `).join('');
+
+                                    if (sortedSummary.length > 0) {
+                                        html += `
+                                            <tr style="background:rgba(255,16,16,0.05); font-weight:bold; border-top: 2px solid var(--border-color);">
+                                                <td style="text-align:left;">GENEL TOPLAM</td>
+                                                <td style="color:#ef4444;">${grandCanceledTotal}</td>
+                                            </tr>
+                                        `;
+                                    }
+
+                                    return html || '<tr><td colspan="2" style="padding:20px; color:var(--text-dim);">\u0130ptal kayd\u0131 yok.</td></tr>';
                                 })()}
                             </tbody>
                         </table>
