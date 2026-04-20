@@ -97,6 +97,7 @@ class App {
                 dailyNotes: this.store.get('dailyNotes') || {},
                 dailyExtra: this.store.get('dailyExtra') || {},
                 waitingRecords: this.store.get('waitingRecords') || [],
+                dailyWaiting: this.store.get('dailyWaiting') || {},
                 lastPersonnelId: this.store.get('lastPersonnelId') || null,
                 actionLogs: this.store.get('actionLogs') || []
             };
@@ -128,6 +129,18 @@ class App {
                     // Keep global empty now that it's migrated
                     this.cache.todo.extra = [];
                     this.store.set('todo', this.cache.todo);
+                }
+            }
+
+            // Migration: Move global 'waitingRecords' to 'dailyWaiting'
+            if (this.cache.waitingRecords && this.cache.waitingRecords.length > 0) {
+                const targetD = this.cache.activeShift || this.today;
+                if (!this.cache.dailyWaiting[targetD]) {
+                    this.cache.dailyWaiting[targetD] = [...this.cache.waitingRecords];
+                    this.store.set('dailyWaiting', this.cache.dailyWaiting);
+                    // Clear legacy
+                    this.cache.waitingRecords = [];
+                    this.store.set('waitingRecords', []);
                 }
             }
 
@@ -1183,7 +1196,7 @@ class App {
         // Build table rows only for current page
         const rowsHTML = pageItems.map(c => {
             const lastRec = getLastRecord(c.id);
-            const p = lastRec ? this.cache.personnel.find(p => p.id === lastRec.personnelId) : null;
+            const p = lastRec ? this.cache.personnel.find(p => String(p.id) === String(lastRec.personnelId)) : null;
             const pName = p ? (p.alias || p.name) : '-';
             return '<tr>'
                 + '<td style="text-align:left; padding-left:15px; font-weight:500;">' + c.name + '</td>'
@@ -1340,7 +1353,7 @@ class App {
         Object.keys(this.cache.records).forEach(date => {
             this.cache.records[date].forEach(rec => {
                 if (rec.customerId == cid || (rec.name && rec.name.toLocaleLowerCase('tr-TR') === customer.name.toLocaleLowerCase('tr-TR'))) {
-                    const pName = this.cache.personnel.find(p => p.id === rec.personnelId)?.name || '-';
+                    const pName = this.cache.personnel.find(p => String(p.id) === String(rec.personnelId))?.name || '-';
                     autoEntries.push({
                         id: 'auto_' + date + '_' + rec.personnelId + '_' + rec.rowIndex,
                         date: date,
@@ -1492,8 +1505,8 @@ class App {
                 this.cache.records[date].forEach(rec => {
                     const pid = rec.personnelId;
                     const cid = rec.customerId;
-                    const cName = rec.name || 'Bilinmeyen M\u00fc\u015fteri';
-                    const pName = this.cache.personnel.find(p => p.id === pid)?.name || 'Bilinmeyen';
+                    const cName = rec.name || 'Bilinmeyen Müşteri';
+                    const pName = this.cache.personnel.find(p => String(p.id) === String(pid))?.name || 'Bilinmeyen';
 
                     // Apply filters
                     if (this.rPid !== 'all' && pid !== this.rPid) return;
@@ -1629,7 +1642,7 @@ class App {
                                 <tr>
                                     <td style="text-align:left; padding-left:15px; font-weight:500;">${s.cName}</td>
                                     <td style="text-align:left; font-weight:500;">${(() => {
-                                        const p = this.cache.personnel.find(px => px.id === s.pId);
+                                        const p = this.cache.personnel.find(px => String(px.id) === String(s.pId));
                                         return p ? (p.alias || p.name) : s.pName;
                                     })()}</td>
                                     <td style="font-size:12px; color:var(--text-dim);">${s.date.split('-').reverse().join('.')}</td>
@@ -2116,7 +2129,9 @@ class App {
         const excludedIncomeTrans = filteredTrans.filter(t => t.type === 'income' && t.excludeFromNetCash).reduce((a, b) => a + b.amount, 0);
         const activeExpenseTrans = filteredTrans.filter(t => t.type === 'expense' && !t.excludeFromNetCash).reduce((a, b) => a + b.amount, 0);
         const excludedExpenseTrans = filteredTrans.filter(t => t.type === 'expense' && t.excludeFromNetCash).reduce((a, b) => a + b.amount, 0);
-        const waitingRecordsTotal = (this.cache.waitingRecords || []).reduce((a, b) => a + b.amount, 0);
+        const waitingRecordsTotal = Object.keys(this.cache.dailyWaiting)
+            .filter(d => d >= this.finStart && d <= this.finEnd)
+            .reduce((sum, date) => sum + (this.cache.dailyWaiting[date] || []).reduce((a, b) => a + b.amount, 0), 0);
         
         // Use all transactions for Total Income (Income - Expense)
         const totalManuelIncome = activeIncomeTrans + excludedIncomeTrans;
@@ -2150,12 +2165,16 @@ class App {
                 });
             });
             
-        (this.cache.waitingRecords || []).forEach(rec => {
-            if (rec.bank && rec.bank !== '-') {
-                const bName = rec.bank.trim().toLocaleUpperCase('tr-TR');
-                bankTotals[bName] = (bankTotals[bName] || 0) + rec.amount;
-            }
-        });
+        Object.keys(this.cache.dailyWaiting)
+            .filter(d => d >= this.finStart && d <= this.finEnd)
+            .forEach(date => {
+                (this.cache.dailyWaiting[date] || []).forEach(rec => {
+                    if (rec.bank && rec.bank !== '-') {
+                        const bName = rec.bank.trim().toLocaleUpperCase('tr-TR');
+                        bankTotals[bName] = (bankTotals[bName] || 0) + rec.amount;
+                    }
+                });
+            });
 
         document.getElementById('mainContent').innerHTML = `
             <div class="admin-view">
@@ -2173,33 +2192,33 @@ class App {
                 </div>
 
                 <div class="stats-grid" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));">
-                    <div class="stat-card" style="border-bottom:4px solid var(--accent-color)">
+                    <div class="stat-card" style="border-bottom:4px solid var(--accent-color); cursor:pointer;" onclick="app.showFinanceDetailModal('net_kasa')">
                         <h3>Net Kasa (Bakiye)</h3>
                         <p>${this.formatNum(balance)} TL</p>
                     </div>
-                    <div class="stat-card" style="border-bottom:4px solid #3b82f6">
+                    <div class="stat-card" style="border-bottom:4px solid #3b82f6; cursor:pointer;" onclick="app.showFinanceDetailModal('konsolide_gelir')">
                         <h3>Toplam Gelir (Konsolide)</h3>
                         <p style="color:#3b82f6">${this.formatNum(totalIncome)} TL</p>
                         <small style="color:var(--text-dim); font-size:10px;">(Grid: ${this.formatNum(dailyGridsIncome)} | İşlemler: ${this.formatNum(netManuelTrans)} | Bekleyen: ${this.formatNum(waitingRecordsTotal)})</small>
                     </div>
-                    <div class="stat-card" style="border-bottom:4px solid var(--danger-color)">
+                    <div class="stat-card" style="border-bottom:4px solid var(--danger-color); cursor:pointer;" onclick="app.showFinanceDetailModal('gider')">
                         <h3>Toplam Gider</h3>
                         <p style="color:var(--danger-color)">${this.formatNum(activeExpenseTrans)} TL</p>
                     </div>
-                    <div class="stat-card" style="border-bottom:4px solid #f59e0b">
+                    <div class="stat-card" style="border-bottom:4px solid #f59e0b; cursor:pointer;" onclick="app.showFinanceDetailModal('kdv')">
                         <h3>Toplam KDV (%${vatRate})</h3>
                         <p style="color:#f59e0b">${this.formatNum(totalVat)} TL</p>
                     </div>
-                    <div class="stat-card" style="border-bottom:4px solid #8b5cf6">
+                    <div class="stat-card" style="border-bottom:4px solid #8b5cf6; cursor:pointer;" onclick="app.showFinanceDetailModal('komisyon')">
                         <h3>Komisyon (%${commRate})</h3>
                         <p style="color:#8b5cf6">${this.formatNum(totalComm)} TL</p>
                     </div>
-                    <div class="stat-card" style="border-bottom:4px solid #06b6d4">
+                    <div class="stat-card" style="border-bottom:4px solid #06b6d4; cursor:pointer;" onclick="app.showFinanceDetailModal('fatura')">
                         <h3>Fatura Toplam</h3>
                         <p style="color:#06b6d4">${this.formatNum(totalFatura)} TL</p>
                     </div>
                     ${Object.entries(bankTotals).map(([name, total]) => `
-                        <div class="stat-card" style="border-bottom:4px solid #10b981; background: #f0fdf4;">
+                        <div class="stat-card" style="border-bottom:4px solid #10b981; background: #f0fdf4; cursor:pointer;" onclick="app.showFinanceDetailModal('bank', '${name.replace(/'/g, "\\'")}')">
                             <h3 style="color:#166534">${name} Toplam</h3>
                             <p style="color:#10b981">${this.formatNum(total)} TL</p>
                         </div>
@@ -2246,6 +2265,161 @@ class App {
                     </table>
                 </div>
             </div>`;
+    }
+
+    getFinanceDetailData(type, start, end, extraArg = null) {
+        if (extraArg === '') extraArg = null;
+        const records = [];
+        let totalAmt = 0;
+        
+        const vatRate = this.cache.settings.vat || 0;
+        const commRate = this.cache.settings.commission || 0;
+        const recRate = this.cache.settings.reklam || 0;
+        const totalRate = vatRate + recRate;
+
+        const filteredTrans = this.cache.transactions.filter(t => t.date >= start && t.date <= end);
+        
+        const dailyGridDates = Object.keys(this.cache.records).filter(d => d >= start && d <= end);
+        const validGridDates = dailyGridDates.filter(d => !filteredTrans.some(t => t.date === d && t.category === 'Günlük Ciro'));
+
+        const datesToProcess = (type === 'net_kasa' || type === 'konsolide_gelir') ? validGridDates : dailyGridDates;
+
+        datesToProcess.forEach(date => {
+            (this.cache.records[date] || []).forEach(rec => {
+                const net = rec.amount / (1 + totalRate / 100);
+                const vatAmt = rec.amount - net;
+                const commAmt = (net * commRate / 100);
+
+                const pName = this.cache.personnel.find(px => String(px.id) === String(rec.personnelId))?.name || 'Bilinmeyen';
+                const baseDesc = `[Adisyon] ${pName} - ${rec.name || 'Bilinmiyor'} ${rec.desc ? '('+rec.desc+')' : ''}`;
+
+                if (type === 'net_kasa' || type === 'konsolide_gelir') {
+                    records.push({ date, category: 'Adisyon', desc: baseDesc, type: 'income', amount: rec.amount, user: rec.user });
+                    totalAmt += rec.amount;
+                } else if (type === 'fatura') {
+                    records.push({ date, category: 'Fatura (Matrah)', desc: baseDesc, type: 'income', amount: net, user: rec.user });
+                    totalAmt += net;
+                } else if (type === 'kdv') {
+                    records.push({ date, category: 'KDV + Reklam', desc: baseDesc, type: 'expense', amount: vatAmt, user: rec.user });
+                    totalAmt += vatAmt;
+                } else if (type === 'komisyon') {
+                    records.push({ date, category: 'Komisyon', desc: baseDesc, type: 'expense', amount: commAmt, user: rec.user });
+                    totalAmt += commAmt;
+                } else if (type === 'bank' && extraArg) {
+                    if (rec.bank && rec.bank.trim().toLocaleUpperCase('tr-TR') === extraArg) {
+                        records.push({ date, category: `Banka Tahsilatı (${extraArg})`, desc: baseDesc, type: 'income', amount: rec.amount, user: rec.user });
+                        totalAmt += rec.amount;
+                    }
+                }
+            });
+        });
+
+        const waitingDates = Object.keys(this.cache.dailyWaiting).filter(d => d >= start && d <= end);
+        waitingDates.forEach(date => {
+            (this.cache.dailyWaiting[date] || []).forEach(rec => {
+                const baseDesc = `[Bekleyen] ${rec.name || 'Bilinmiyor'} ${rec.desc ? '('+rec.desc+')' : ''}`;
+
+                if (type === 'net_kasa' || type === 'konsolide_gelir') {
+                    records.push({ date, category: 'Bekleyen Kayıt', desc: baseDesc, type: 'income', amount: rec.amount, user: rec.user });
+                    totalAmt += rec.amount;
+                } else if (type === 'bank' && extraArg) {
+                    if (rec.bank && rec.bank.trim().toLocaleUpperCase('tr-TR') === extraArg) {
+                        records.push({ date, category: `Banka Tahsilatı (${extraArg} - Bekleyen)`, desc: baseDesc, type: 'income', amount: rec.amount, user: rec.user });
+                        totalAmt += rec.amount;
+                    }
+                }
+            });
+        });
+
+        filteredTrans.forEach(t => {
+            if (type === 'konsolide_gelir') {
+                records.push({...t, type: t.type}); 
+                if (t.type === 'income') totalAmt += t.amount;
+                else totalAmt -= t.amount;
+            } else if (type === 'gider' && t.type === 'expense' && !t.excludeFromNetCash) {
+                records.push(t);
+                totalAmt += t.amount;
+            }
+        });
+
+        return { records: records.sort((a,b) => b.date.localeCompare(a.date)), totalAmt };
+    }
+
+    showFinanceDetailModal(type, extraArg = null, forceStart = null, forceEnd = null) {
+        if (extraArg === '') extraArg = null;
+        const start = forceStart || this.finStart;
+        const end = forceEnd || this.finEnd;
+        
+        const { records, totalAmt } = this.getFinanceDetailData(type, start, end, extraArg);
+        
+        let title = '';
+        if (type === 'net_kasa') title = 'Net Kasa (Bakiye) Detayı';
+        else if (type === 'konsolide_gelir') title = 'Toplam Gelir (Konsolide) Detayı';
+        else if (type === 'gider') title = 'Toplam Gider Detayı';
+        else if (type === 'kdv') title = 'Toplam KDV Kesintisi Detayı';
+        else if (type === 'komisyon') title = 'Komisyon Kesintisi Detayı';
+        else if (type === 'fatura') title = 'Fatura Toplam (Matrah) Detayı';
+        else if (type === 'bank') title = `${extraArg} Toplam Detayı`;
+
+        const ov = document.getElementById('modalOverlay'); 
+        ov.classList.remove('hidden');
+        
+        ov.innerHTML = `
+            <div class="modal-content" style="width:900px; max-height:90vh; overflow-y:auto;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; border-bottom:2px solid var(--border-color); padding-bottom:15px;">
+                    <div style="flex:1;">
+                        <h2 style="margin:0; color:var(--primary-color);">${title}</h2>
+                        <div style="font-size:12px; color:var(--text-dim); margin-top:5px;">${start.split('-').reverse().join('.')} - ${end.split('-').reverse().join('.')} Arası</div>
+                    </div>
+                    <div style="text-align:right; border-right:2px solid var(--border-color); padding-right:20px; margin-right:20px;">
+                        <div style="font-size:12px; color:var(--text-dim); margin-bottom:5px;">Toplam Tutar</div>
+                        <div style="font-size:22px; font-weight:bold; color:var(--accent-color);">${this.formatNum(totalAmt)} TL</div>
+                    </div>
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <button type="button" class="btn-primary" style="background:#10b981; padding:6px 15px; font-size:12px;" onclick="window.print()">\ud83d\udda8\ufe0f Yazd\u0131r / PDF</button>
+                        <button type="button" class="btn-text" style="padding:6px 15px; font-size:12px;" onclick="app.closeModal()">Kapat</button>
+                    </div>
+                </div>
+                
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; background:var(--bg-card); padding:10px; border-radius:8px; border:1px solid var(--border-color);">
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <span style="font-size:12px; font-weight:600;">Tarih Filtresi:</span>
+                        <input type="date" id="fd_start" value="${start}" style="width:125px; padding:5px; font-size:11px; background:var(--bg-input); border:1px solid var(--border-color); color:white; border-radius:4px;">
+                        <span style="color:var(--text-dim)">\u2794</span>
+                        <input type="date" id="fd_end" value="${end}" style="width:125px; padding:5px; font-size:11px; background:var(--bg-input); border:1px solid var(--border-color); color:white; border-radius:4px;">
+                        <button class="btn-primary" style="padding:5px 12px; font-size:11px;" onclick="app.showFinanceDetailModal('${type}', '${extraArg ? extraArg.replace(/'/g, "\\'") : ''}', document.getElementById('fd_start').value, document.getElementById('fd_end').value)">Uygula</button>
+                    </div>
+                </div>
+
+                <table class="excel-table" style="width:100%;">
+                    <thead>
+                        <tr>
+                            <th>Tarih</th>
+                            <th style="text-align:left; padding-left:15px;">A\u00e7\u0131klama / Kategori</th>
+                            <th>T\u00fcr</th>
+                            <th>Tutar</th>
+                            <th>Yapan</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${records.length > 0 ? records.map(r => `
+                            <tr>
+                                <td>${r.date.split('-').reverse().join('.')}</td>
+                                <td style="text-align:left; padding-left:15px;">
+                                    <div style="font-weight:bold; color:var(--text-main);">${r.category || '-'}</div>
+                                    <div style="font-size:11px; color:var(--text-dim); white-space:normal;">${r.desc || ''}</div>
+                                </td>
+                                <td><span class="badge-${r.type === 'income' ? 'active' : 'pasif'}">${r.type === 'income' ? 'GEL\u0130R' : 'G\u0130DER'}</span></td>
+                                <td style="font-weight:bold; color:${r.type === 'income' ? 'var(--accent-color)' : 'var(--danger-color)'}">
+                                    ${r.type === 'income' ? '+' : '-'}${this.formatNum(r.amount)} TL
+                                </td>
+                                <td style="font-size:11px; color:var(--text-dim);">${r.user || 'Sistem'}</td>
+                            </tr>
+                        `).join('') : '<tr><td colspan="5" style="padding:40px; color:var(--text-dim);">Bu kriterlere uygun kay\u0131t bulunamad\u0131.</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
+        `;
     }
 
     setFinanceFilter() {
@@ -2716,9 +2890,9 @@ class App {
             this.store.set('closedDays', this.cache.closedDays);
             this.logAction(`İş Günü Kapatıldı: ${this.currentDate}`);
 
-            // Bekleyen Kayıtları (Sağ Panel) Sıfırla
-            this.cache.waitingRecords = [];
-            this.store.set('waitingRecords', []);
+            // Bekleyen Kayıtları (Sağ Panel) Sıfırla (Kaldırıldı: Artık tarih bazlı)
+            // this.cache.waitingRecords = [];
+            // this.store.set('waitingRecords', []);
 
             this.cache.activeShift = null;
             this.store.set('activeShift', null);
@@ -2736,7 +2910,7 @@ class App {
         }
     }
     backupData(auto = false) {
-        const data = { records: this.cache.records, personnel: this.cache.personnel, settings: this.cache.settings, todo: this.cache.todo, closedDays: this.cache.closedDays, panelTitles: this.cache.panelTitles, transactions: this.cache.transactions, leaves: this.cache.leaves, dailyExtra: this.cache.dailyExtra };
+        const data = { records: this.cache.records, personnel: this.cache.personnel, settings: this.cache.settings, todo: this.cache.todo, closedDays: this.cache.closedDays, panelTitles: this.cache.panelTitles, transactions: this.cache.transactions, leaves: this.cache.leaves, dailyExtra: this.cache.dailyExtra, dailyWaiting: this.cache.dailyWaiting };
 
         // Auto-save to local disk via Electron
         if (window.electronAPI && window.electronAPI.autoBackup) {
@@ -2950,7 +3124,8 @@ class App {
     renderWaitingRecords() {
         const el = document.getElementById('wList');
         if (!el) return;
-        el.innerHTML = this.cache.waitingRecords.map((r, i) => {
+        const list = this.cache.dailyWaiting[this.currentDate] || [];
+        el.innerHTML = list.map((r, i) => {
             const p = r.personnelId ? this.cache.personnel.find(px => px.id == r.personnelId) : null;
             let pBadge = '';
             if (p) {
@@ -2960,11 +3135,11 @@ class App {
             }
             
             return `
-            <div class="todo-item" draggable="true" ondragstart="app.onWaitingDragStart(event, ${i})" onclick="app.editWaitingRecord(${i})" style="cursor:move; gap:4px; height:auto; padding:0; background:rgba(245, 158, 11, 0.05); border-color:rgba(245, 158, 11, 0.1); position:relative; min-height:45px; border-radius:6px; margin-bottom:4px; overflow:hidden;">
+            <div class="todo-item" draggable="true" ondragstart="app.onItemDragStart(event, 'waiting', ${i})" ondragover="app.onItemDragOver(event)" ondrop="app.onItemDrop(event, 'waiting', ${i})" onclick="app.editWaitingRecord(${i})" style="cursor:move; gap:4px; height:auto; padding:0; background:rgba(245, 158, 11, 0.05); border-color:rgba(245, 158, 11, 0.1); position:relative; min-height:45px; border-radius:6px; margin-bottom:4px; overflow:hidden;">
                 <div class="todo-controls-left" style="width:24px; padding:0 2px;">
                     <div style="display:flex; flex-direction:column; width:100%; height:100%; justify-content:center; gap:2px;">
                         <button class="btn-move" onclick="event.stopPropagation(); app.moveWaitingRecord(${i}, -1)" ${i === 0 ? 'disabled style="opacity:0.05"' : ''}>▲</button>
-                        <button class="btn-move" onclick="event.stopPropagation(); app.moveWaitingRecord(${i}, 1)" ${i === this.cache.waitingRecords.length - 1 ? 'disabled style="opacity:0.05"' : ''}>▼</button>
+                        <button class="btn-move" onclick="event.stopPropagation(); app.moveWaitingRecord(${i}, 1)" ${i === list.length - 1 ? 'disabled style="opacity:0.05"' : ''}>▼</button>
                     </div>
                 </div>
                 <div style="flex:1; display:flex; flex-direction:column; gap:4px; padding:6px 8px;">
@@ -2985,31 +3160,79 @@ class App {
     }
 
     moveWaitingRecord(index, dir) {
-        const list = this.cache.waitingRecords;
+        const list = this.cache.dailyWaiting[this.currentDate] || [];
         const target = index + dir;
         if (target < 0 || target >= list.length) return;
 
         [list[index], list[target]] = [list[target], list[index]];
-        this.store.set('waitingRecords', this.cache.waitingRecords);
+        this.cache.dailyWaiting[this.currentDate] = list;
+        this.store.set('dailyWaiting', this.cache.dailyWaiting);
         this.renderWaitingRecords();
     }
 
     editWaitingRecord(i) {
-        const r = this.cache.waitingRecords[i];
+        const list = this.cache.dailyWaiting[this.currentDate] || [];
+        const r = list[i];
         this.showRecordModal(null, null, { ...r, _isWaiting: true, _waitIdx: i });
     }
 
     remWaitingRecord(i) {
         if (confirm('Bu bekleyen kaydı silmek istediğinize emin misiniz?')) {
-            this.cache.waitingRecords.splice(i, 1);
-            this.store.set('waitingRecords', this.cache.waitingRecords);
+            const list = this.cache.dailyWaiting[this.currentDate] || [];
+            list.splice(i, 1);
+            this.cache.dailyWaiting[this.currentDate] = list;
+            this.store.set('dailyWaiting', this.cache.dailyWaiting);
             this.renderWaitingRecords();
         }
     }
 
-    onWaitingDragStart(e, i) {
-        e.dataTransfer.setData('text/plain', i);
+    onItemDragStart(e, type, i) {
+        e.dataTransfer.setData('application/json', JSON.stringify({ type, index: i }));
         e.dataTransfer.effectAllowed = 'move';
+    }
+
+    onItemDragOver(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    }
+
+    onItemDrop(e, targetType, targetIdx) {
+        e.preventDefault();
+        const dataStr = e.dataTransfer.getData('application/json');
+        if (!dataStr) return;
+        try {
+            const { type: srcType, index: srcIdx } = JSON.parse(dataStr);
+            if (srcType !== targetType || srcIdx === targetIdx) return;
+
+            let list;
+            if (srcType === 'extra') {
+                list = this.cache.dailyExtra[this.currentDate] || [];
+            } else if (srcType === 'remaining') {
+                list = this.cache.todo.remaining || [];
+            } else if (srcType === 'waiting') {
+                list = this.cache.dailyWaiting[this.currentDate] || [];
+            } else {
+                return;
+            }
+
+            const [item] = list.splice(srcIdx, 1);
+            list.splice(targetIdx, 0, item);
+
+            if (srcType === 'extra') {
+                this.cache.dailyExtra[this.currentDate] = list;
+                this.store.set('dailyExtra', this.cache.dailyExtra);
+            } else if (srcType === 'remaining') {
+                this.cache.todo.remaining = list;
+                this.store.set('todo', this.cache.todo);
+            } else if (srcType === 'waiting') {
+                this.cache.dailyWaiting[this.currentDate] = list;
+                this.store.set('dailyWaiting', this.cache.dailyWaiting);
+            }
+
+            this.renderTodos();
+        } catch (err) {
+            console.error("Drop hatası:", err);
+        }
     }
 
     onWaitingDrop(e, pid, idx) {
@@ -3022,8 +3245,21 @@ class App {
             return;
         }
 
-        const waitIdx = parseInt(e.dataTransfer.getData('text/plain'));
-        const r = this.cache.waitingRecords[waitIdx];
+        let waitIdx;
+        const jsonStr = e.dataTransfer.getData('application/json');
+        if (jsonStr) {
+            try {
+                const data = JSON.parse(jsonStr);
+                if (data.type !== 'waiting') return;
+                waitIdx = data.index;
+            } catch(err) {
+                return;
+            }
+        } else {
+            waitIdx = parseInt(e.dataTransfer.getData('text/plain'));
+        }
+        const waitRecs = this.cache.dailyWaiting[this.currentDate] || [];
+        const r = waitRecs[waitIdx];
         if (!r) return;
 
         const data = {
@@ -3040,8 +3276,9 @@ class App {
         this.cache.records[this.currentDate] = day;
         this.store.set('records', this.cache.records);
 
-        this.cache.waitingRecords.splice(waitIdx, 1);
-        this.store.set('waitingRecords', this.cache.waitingRecords);
+        waitRecs.splice(waitIdx, 1);
+        this.cache.dailyWaiting[this.currentDate] = waitRecs;
+        this.store.set('dailyWaiting', this.cache.dailyWaiting);
 
         // Remember the last chosen personnel
         this.cache.lastPersonnelId = pid;
@@ -3060,7 +3297,7 @@ class App {
             const list = (t === 'extra') ? (this.cache.dailyExtra[this.currentDate] || []) : (this.cache.todo[t] || []);
             
             el.innerHTML = list.map((x, i) => `
-                <div class="todo-item">
+                <div class="todo-item" draggable="true" ondragstart="app.onItemDragStart(event, '${t}', ${i})" ondragover="app.onItemDragOver(event)" ondrop="app.onItemDrop(event, '${t}', ${i})" style="cursor:move;">
                     <div class="todo-controls-left">
                         <div style="display:flex; flex-direction:column; width:14px; height:100%; justify-content:center;">
                             <button class="btn-move" onclick="app.moveTodo('${t}', ${i}, -1)" ${i === 0 ? 'disabled style="opacity:0.05"' : ''}>▲</button>
@@ -3407,12 +3644,14 @@ class App {
                 }
                 
                 // If editing an existing waiting record
+                const waitRecs = this.cache.dailyWaiting[this.currentDate] || [];
                 if (rec?._isWaiting && rec?._waitIdx !== undefined) {
-                    this.cache.waitingRecords[rec._waitIdx] = data;
+                    waitRecs[rec._waitIdx] = data;
                 } else {
-                    this.cache.waitingRecords.push(data);
+                    waitRecs.push(data);
                 }
-                this.store.set('waitingRecords', this.cache.waitingRecords);
+                this.cache.dailyWaiting[this.currentDate] = waitRecs;
+                this.store.set('dailyWaiting', this.cache.dailyWaiting);
             } else {
                 const newPid = document.getElementById('run').value;
                 let targetIdx = idx || 0;
@@ -3430,8 +3669,10 @@ class App {
 
                 // Remove from waiting records if it was there
                 if (rec?._isWaiting && rec?._waitIdx !== undefined) {
-                    this.cache.waitingRecords.splice(rec._waitIdx, 1);
-                    this.store.set('waitingRecords', this.cache.waitingRecords);
+                    const waitRecs = this.cache.dailyWaiting[this.currentDate] || [];
+                    waitRecs.splice(rec._waitIdx, 1);
+                    this.cache.dailyWaiting[this.currentDate] = waitRecs;
+                    this.store.set('dailyWaiting', this.cache.dailyWaiting);
                 }
 
                 const recordData = {
@@ -3465,8 +3706,10 @@ class App {
         if (!confirm('Bu kayd\u0131 silmek istedi\u011finize emin misiniz?')) return;
 
         if (isWaiting && waitIdx !== null && waitIdx !== undefined) {
-            this.cache.waitingRecords.splice(waitIdx, 1);
-            this.store.set('waitingRecords', this.cache.waitingRecords);
+            const list = this.cache.dailyWaiting[this.currentDate] || [];
+            list.splice(waitIdx, 1);
+            this.cache.dailyWaiting[this.currentDate] = list;
+            this.store.set('dailyWaiting', this.cache.dailyWaiting);
             this.logAction('Bekleyen Kay\u0131t Silindi');
         } else if (pid !== null && idx !== null) {
             let day = this.cache.records[this.currentDate] || [];
