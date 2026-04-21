@@ -102,6 +102,15 @@ class App {
                 actionLogs: this.store.get('actionLogs') || []
             };
 
+            const originalSet = this.store.set.bind(this.store);
+            this.store.set = (key, value) => {
+                if (['records', 'customerLedgers', 'customers', 'dailyWaiting'].includes(key)) {
+                    this._customerBalancesCache = null;
+                    this._customerLastRecordCache = null;
+                }
+                return originalSet(key, value);
+            };
+
             // Robust check for definitions
             if (!this.cache.definitions.income) this.cache.definitions.income = [];
             if (!this.cache.definitions.expense) this.cache.definitions.expense = [];
@@ -1095,48 +1104,47 @@ class App {
         const activeCount = this.cache.customers.filter(c => c.status === 'active').length;
         const passiveCount = this.cache.customers.filter(c => c.status === 'pasif').length;
 
-        // Calculate total balance from all customer ledgers and daily records
-        let totalBal = 0;
-        const customerRecordCharges = {};
-        Object.keys(this.cache.records).forEach(date => {
-            (this.cache.records[date] || []).forEach(rec => {
-                if (!rec.amount) return;
-                const cid = rec.customerId;
-                if (cid) {
-                    customerRecordCharges[cid] = (customerRecordCharges[cid] || 0) + rec.amount;
-                } else if (rec.name) {
-                    const lowName = rec.name.toLocaleLowerCase('tr-TR');
-                    const c = this.cache.customers.find(cx => cx.name.toLocaleLowerCase('tr-TR') === lowName);
-                    if (c) customerRecordCharges[c.id] = (customerRecordCharges[c.id] || 0) + rec.amount;
-                }
-            });
-        });
-
-        const customerBalances = {};
-        this.cache.customers.forEach(c => {
-            let cBal = customerRecordCharges[c.id] || 0;
-            const ledger = this.cache.customerLedgers[c.id] || [];
-            const charges = ledger.filter(l => l.type === 'charge').reduce((s, l) => s + l.amount, 0);
-            const payments = ledger.filter(l => l.type === 'payment').reduce((s, l) => s + l.amount, 0);
-            const finalBal = (cBal + charges - payments);
-            customerBalances[c.id] = finalBal;
-            totalBal += finalBal;
-        });
-
-        // Build last record cache once (performance fix - prevents repeated full scans)
-        if (!this._customerLastRecordCache) {
+        // Build last record and balance caches once (performance fix - prevents repeated full scans)
+        if (!this._customerBalancesCache) {
             this._customerLastRecordCache = {};
+            this._customerBalancesCache = {};
+            let totalBal = 0;
+            const customerRecordCharges = {};
+
             const allDates = Object.keys(this.cache.records).sort().reverse();
             for (const date of allDates) {
                 const dayRecords = this.cache.records[date] || [];
                 for (const rec of dayRecords) {
                     const cid = rec.customerId;
-                    if (cid && !this._customerLastRecordCache[cid]) {
-                        this._customerLastRecordCache[cid] = { ...rec, date };
+                    if (cid) {
+                        if (!this._customerLastRecordCache[cid]) {
+                            this._customerLastRecordCache[cid] = { ...rec, date };
+                        }
+                        if (rec.amount) customerRecordCharges[cid] = (customerRecordCharges[cid] || 0) + rec.amount;
+                    } else if (rec.name) {
+                        if (rec.amount) {
+                            const lowName = rec.name.toLocaleLowerCase('tr-TR');
+                            const c = this.cache.customers.find(cx => cx.name.toLocaleLowerCase('tr-TR') === lowName);
+                            if (c) customerRecordCharges[c.id] = (customerRecordCharges[c.id] || 0) + rec.amount;
+                        }
                     }
                 }
             }
+
+            this.cache.customers.forEach(c => {
+                let cBal = customerRecordCharges[c.id] || 0;
+                const ledger = this.cache.customerLedgers[c.id] || [];
+                const charges = ledger.filter(l => l.type === 'charge').reduce((s, l) => s + l.amount, 0);
+                const payments = ledger.filter(l => l.type === 'payment').reduce((s, l) => s + l.amount, 0);
+                const finalBal = (cBal + charges - payments);
+                this._customerBalancesCache[c.id] = finalBal;
+                totalBal += finalBal;
+            });
+            this._customerTotalBalCache = totalBal;
         }
+
+        const customerBalances = this._customerBalancesCache;
+        const totalBal = this._customerTotalBalCache;
 
         const getLastRecord = (customerId) => {
             return this._customerLastRecordCache[customerId] || null;
@@ -1245,11 +1253,13 @@ class App {
             cSearch.oninput = (e) => {
                 this.customersSearchQuery = e.target.value.toLocaleLowerCase('tr-TR');
                 this.customersPage = 1;
-                this._customerLastRecordCache = null;
-                this.renderCustomers();
-                // Re-focus and position cursor at end
-                const el = document.getElementById('cSearch');
-                if (el) { el.focus(); el.selectionStart = el.selectionEnd = el.value.length; }
+                if (this._customerSearchTimeout) clearTimeout(this._customerSearchTimeout);
+                this._customerSearchTimeout = setTimeout(() => {
+                    this.renderCustomers();
+                    // Re-focus and position cursor at end after render
+                    const el = document.getElementById('cSearch');
+                    if (el) { el.focus(); el.selectionStart = el.selectionEnd = el.value.length; }
+                }, 300);
             };
         }
     }
@@ -1257,7 +1267,6 @@ class App {
     setCustomerFilter(filter) {
         this.cFilter = filter;
         this.customersPage = 1;
-        this._customerLastRecordCache = null;
         this.renderCustomers();
     }
 
