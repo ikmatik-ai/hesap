@@ -326,17 +326,17 @@ class App {
     }
 
     showInputModal(title, defaultValue, cb, allowEmpty = false, maxLength = null) {
-        const ov = document.getElementById('modalOverlay');
+        const ov = document.getElementById('inputOverlay');
         ov.classList.remove('hidden');
         ov.innerHTML = `
-            <div class="modal-content" style="max-width:350px;">
-                <h2 style="margin-bottom:15px;">${title}</h2>
+            <div class="modal-content" style="max-width:350px; border:2px solid var(--accent-color); box-shadow: 0 0 30px rgba(0,0,0,0.5);">
+                <h2 style="margin-bottom:15px; border-bottom:1px solid var(--border-color); padding-bottom:10px;">${title}</h2>
                 <div class="form-group">
-                    <input type="text" id="modalInp" value="${defaultValue || ''}" ${maxLength ? `maxlength="${maxLength}"` : ''} style="width:100%; padding:10px; background:var(--bg-input); border:1px solid var(--border-color); color:white; border-radius:6px;">
+                    <input type="text" id="modalInp" value="${defaultValue || ''}" ${maxLength ? `maxlength="${maxLength}"` : ''} style="width:100%; padding:12px; background:#fff; border:1px solid var(--accent-color); color:#000; border-radius:6px; font-weight:bold; font-size:16px;">
                 </div>
                 <div style="display:flex; gap:10px; margin-top:20px;">
                     <button class="btn-primary" id="modalConfirm" style="flex:1;">Tamam</button>
-                    <button class="btn-text" onclick="app.closeModal()" style="flex:1;">İptal</button>
+                    <button class="btn-text" onclick="app.closeInputModal()" style="flex:1;">İptal</button>
                 </div>
             </div>
         `;
@@ -346,14 +346,19 @@ class App {
 
         document.getElementById('modalConfirm').onclick = () => {
             const val = inp.value.trim();
-            this.closeModal();
+            this.closeInputModal();
             if (val || allowEmpty) cb(val);
         };
 
         inp.onkeyup = (e) => {
             if (e.key === 'Enter') document.getElementById('modalConfirm').click();
-            if (e.key === 'Escape') this.closeModal();
+            if (e.key === 'Escape') this.closeInputModal();
         };
+    }
+
+    closeInputModal() {
+        document.getElementById('inputOverlay').classList.add('hidden');
+        document.getElementById('inputOverlay').innerHTML = '';
     }
 
     init() {
@@ -482,6 +487,7 @@ class App {
                 <div class="main-layout" id="mainContent"></div>
             </div>
             <div id="modalOverlay" class="modal-overlay hidden" onclick="if(event.target === this) app.closeModal()"></div>
+            <div id="inputOverlay" class="modal-overlay hidden" style="z-index: 2000; background: rgba(0,0,0,0.5);" onclick="if(event.target === this) app.closeInputModal()"></div>
         `;
         const logout = document.getElementById('logoutBtn');
         if (logout) logout.onclick = () => { this.showLogin(); };
@@ -1302,14 +1308,17 @@ class App {
                             </select>
                         </div>
                     </div>
-                    <div class="form-row">
-                        <div class="form-group">
+                    <div class="form-row" style="align-items:flex-end;">
+                        <div class="form-group" style="flex:1;">
                             <label>Başlangıç Saati</label>
                             <input type="time" id="cst" value="${c?.startTime || ''}">
                         </div>
-                        <div class="form-group">
+                        <div class="form-group" style="flex:1;">
                             <label>Bitiş Saati</label>
                             <input type="time" id="cet" value="${c?.endTime || ''}">
+                        </div>
+                        <div class="form-group" style="flex:0.5; margin-bottom: 0;">
+                            <button type="button" class="btn-primary" style="height:35px; width:100%; padding:0; font-size:12px;" onclick="app.autoFillCustomerTime()">Süre Gir</button>
                         </div>
                     </div>
                     <div class="form-group">
@@ -1350,6 +1359,40 @@ class App {
             if (this.currentView === 'customers') this.renderCustomers();
             this.showToast(id ? 'Müşteri güncellendi.' : 'Yeni müşteri eklendi.', 'success');
         };
+    }
+
+    autoFillCustomerTime(startId = 'cst', endId = 'cet') {
+        this.showInputModal('Kaç Dakika?', '', (minutesStr) => {
+            const minutes = parseInt(minutesStr);
+            if (isNaN(minutes) || minutes <= 0) {
+                this.showToast('Lütfen geçerli bir dakika girin.', 'error');
+                return;
+            }
+
+            const startEl = document.getElementById(startId);
+            const endEl = document.getElementById(endId);
+
+            if (!startEl || !endEl) return;
+
+            let startTime = startEl.value;
+            if (!startTime) {
+                const now = new Date();
+                startTime = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+                startEl.value = startTime;
+            }
+
+            const [hours, mins] = startTime.split(':').map(Number);
+            const date = new Date();
+            date.setHours(hours);
+            date.setMinutes(mins + minutes);
+
+            const endHours = String(date.getHours()).padStart(2, '0');
+            const endMins = String(date.getMinutes()).padStart(2, '0');
+            endEl.value = `${endHours}:${endMins}`;
+
+            // Trigger change event for reactive systems if any
+            endEl.dispatchEvent(new Event('change'));
+        });
     }
 
     showCustomerLedger(cid) {
@@ -3134,7 +3177,14 @@ class App {
         const el = document.getElementById('wList');
         if (!el) return;
         const list = this.cache.dailyWaiting[this.currentDate] || [];
+        
+        const now = new Date();
+        const currentMinutes = (now.getHours() * 60) + now.getMinutes();
+
         el.innerHTML = list.map((r, i) => {
+            const startTimeMinutes = this.timeToMinutes(r.startTime);
+            const isTimeUp = startTimeMinutes !== -1 && currentMinutes >= startTimeMinutes;
+            
             const p = r.personnelId ? this.cache.personnel.find(px => px.id == r.personnelId) : null;
             let pBadge = '';
             if (p) {
@@ -3142,9 +3192,15 @@ class App {
             } else if (!r.personnelId || r._explicitNoPerson) {
                 pBadge = `<div style="font-size:9px; color:#ef4444; font-weight:bold; background:rgba(239, 68, 68, 0.1); padding:1px 4px; border-radius:3px; border:1px solid rgba(239, 68, 68, 0.1); white-space:nowrap;">👤 Personel Seçilmedi</div>`;
             }
+
+            const timeBadge = r.startTime ? `
+                <div class="${isTimeUp ? 'time-badge-alert' : ''}" style="font-size:9px; color:#475569; font-weight:bold; background:rgba(0,0,0,0.05); padding:1px 4px; border-radius:3px; border:1px solid rgba(0,0,0,0.1); white-space:nowrap;">
+                    ⏰ ${r.startTime}
+                </div>
+            ` : '';
             
             return `
-            <div class="todo-item" draggable="true" ondragstart="app.onItemDragStart(event, 'waiting', ${i})" ondragover="app.onItemDragOver(event)" ondrop="app.onItemDrop(event, 'waiting', ${i})" onclick="app.editWaitingRecord(${i})" style="cursor:move; gap:4px; height:auto; padding:0; background:rgba(245, 158, 11, 0.05); border-color:rgba(245, 158, 11, 0.1); position:relative; min-height:45px; border-radius:6px; margin-bottom:4px; overflow:hidden;">
+            <div class="todo-item ${isTimeUp ? 'waiting-alert' : ''}" draggable="true" ondragstart="app.onItemDragStart(event, 'waiting', ${i})" ondragover="app.onItemDragOver(event)" ondrop="app.onItemDrop(event, 'waiting', ${i})" onclick="app.editWaitingRecord(${i})" style="cursor:move; gap:4px; height:auto; padding:0; background:rgba(245, 158, 11, 0.05); border-color:rgba(245, 158, 11, 0.1); position:relative; min-height:45px; border-radius:6px; margin-bottom:4px; overflow:hidden;">
                 <div class="todo-controls-left" style="width:24px; padding:0 2px;">
                     <div style="display:flex; flex-direction:column; width:100%; height:100%; justify-content:center; gap:2px;">
                         <button class="btn-move" onclick="event.stopPropagation(); app.moveWaitingRecord(${i}, -1)" ${i === 0 ? 'disabled style="opacity:0.05"' : ''}>▲</button>
@@ -3156,7 +3212,10 @@ class App {
                         <div style="font-weight:700; font-size:11px; color:#1e293b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:110px;">${r.name}</div>
                         <div style="display:flex; align-items:center; gap:5px;">
                             <span style="font-size:10px; color:#b45309; font-weight:700;">${this.formatNum(r.amount)} TL</span>
-                            ${pBadge}
+                            <div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px;">
+                                ${pBadge}
+                                ${timeBadge}
+                            </div>
                             <button class="btn-item-del" onclick="event.stopPropagation(); app.remWaitingRecord(${i})" style="padding:0 2px; font-size:14px; background:transparent; border:none; opacity:0.6;">\u00d7</button>
                         </div>
                     </div>
@@ -3413,7 +3472,7 @@ class App {
         const ov = document.getElementById('modalOverlay'); ov.classList.remove('hidden');
         ov.innerHTML = `
             <div class="modal-content">
-                <h2>Kay\u0131t Formu</h2>
+                <h2>Kay\u0131t Formu <span style="font-size:10px; color:var(--accent-color);">(G\u00fcncelleme Aktif)</span></h2>
                 <form id="rForm">
                     <div style="margin-bottom:15px; background:rgba(245, 158, 11, 0.1); padding:10px; border-radius:6px; border:1px solid rgba(245, 158, 11, 0.3);">
                         <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3452,9 +3511,12 @@ class App {
                         </div>
                     </div>
                     <div class="form-group"><label>A\u00e7\u0131klama</label><input id="rd" value="${rec?.desc || ''}"></div>
-                    <div class="form-row">
-                        <div class="form-group"><label>Ba\u015flang\u0131\u00e7 Saati</label><input type="time" id="rs" value="${rec?.startTime || ''}"></div>
-                        <div class="form-group"><label>Biti\u015f Saati</label><input type="time" id="re" value="${rec?.endTime || ''}"></div>
+                    <div class="form-row" style="display:flex !important; gap:10px !important; align-items:flex-end !important; grid-template-columns: none !important;">
+                        <div class="form-group" style="flex:1;"><label>Başlangıç Saati</label><input type="time" id="rs" value="${rec?.startTime || ''}"></div>
+                        <div class="form-group" style="flex:1;"><label>Bitiş Saati</label><input type="time" id="re" value="${rec?.endTime || ''}"></div>
+                        <div class="form-group" style="flex:0.6; margin-bottom:0;">
+                            <button type="button" class="btn-primary" style="height:35px; width:100%; padding:0; font-size:12px;" onclick="app.autoFillCustomerTime('rs', 're')">Süre Gir</button>
+                        </div>
                     </div>
                     <div class="form-row" style="align-items:flex-start;">
                         <div style="flex:1; display:flex; flex-direction:column; gap:10px;">

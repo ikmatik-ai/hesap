@@ -984,4 +984,28 @@ textarea {
     text-align: center;
     color: var(--text-dim);
     font-size: 12px;
+}
+
+/* Waiting Records Alert */
+.waiting-alert {
+    background: rgba(239, 68, 68, 0.1) !important;
+    border-color: #ef4444 !important;
+    animation: pulse-border 2s infinite;
+}
+
+@keyframes pulse-border {
+    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+    70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+.time-badge-alert {
+    background: #ef4444 !important;
+    color: white !important;
+    animation: pulse-bg 1s infinite alternate;
+}
+
+@keyframes pulse-bg {
+    from { opacity: 1; }
+    to { opacity: 0.6; }
 }
