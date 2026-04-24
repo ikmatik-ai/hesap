@@ -74,6 +74,10 @@ class App {
             this.anaSortKey = 'returns';
             this.anaSortDir = 'desc';
 
+            // Analysis 2 Filter Defaults (Today)
+            this.ana2Start = this.today;
+            this.ana2End = this.today;
+
             this.cache = {
                 personnel: this.store.get('personnel') || [],
                 settings: this.store.get('settings') || { vat: 20, commission: 5, reklam: 0, rowCount: 25 },
@@ -117,13 +121,13 @@ class App {
             if (!this.cache.definitions.bank) this.cache.definitions.bank = [];
 
             // Robust check/Migration for Permissions
-            if (this.cache.permissions.admin && !this.cache.permissions.admin.includes('analysis')) {
-                const newAdmin = [...new Set([...this.cache.permissions.admin, 'analysis', 'customers', 'actionLogs'])];
+            if (this.cache.permissions.admin && (!this.cache.permissions.admin.includes('analysis') || !this.cache.permissions.admin.includes('analysis2'))) {
+                const newAdmin = [...new Set([...this.cache.permissions.admin, 'analysis', 'analysis2', 'customers', 'actionLogs'])];
                 this.cache.permissions.admin = newAdmin;
                 this.store.set('permissions', this.cache.permissions);
             }
-            if (this.cache.permissions.user && !this.cache.permissions.user.includes('analysis')) {
-                const newUser = [...new Set([...this.cache.permissions.user, 'analysis'])];
+            if (this.cache.permissions.user && (!this.cache.permissions.user.includes('analysis') || !this.cache.permissions.user.includes('analysis2'))) {
+                const newUser = [...new Set([...this.cache.permissions.user, 'analysis', 'analysis2'])];
                 this.cache.permissions.user = newUser;
                 this.store.set('permissions', this.cache.permissions);
             }
@@ -444,6 +448,7 @@ class App {
         else if (view === 'customers') this.renderCustomers();
         else if (view === 'actionLogs') this.renderActionLogs();
         else if (view === 'analysis') this.renderAnalysis();
+        else if (view === 'analysis2') this.renderAnalysis2();
     }
 
     renderBase() {
@@ -468,6 +473,7 @@ class App {
                         ${this.cache.permissions[this.user.role].includes('personnel') ? `<button class="${this.currentView === 'personnel' ? 'active' : ''}" onclick="app.showView('personnel')">Personeller</button>` : ''}
                         ${this.cache.permissions[this.user.role].includes('customers') ? `<button class="${this.currentView === 'customers' ? 'active' : ''}" onclick="app.showView('customers')">Müşteriler</button>` : ''}
                         ${this.cache.permissions[this.user.role].includes('analysis') ? `<button class="${this.currentView === 'analysis' ? 'active' : ''}" onclick="app.showView('analysis')">Analiz</button>` : ''}
+                        ${this.cache.permissions[this.user.role].includes('analysis2') ? `<button class="${this.currentView === 'analysis2' ? 'active' : ''}" onclick="app.showView('analysis2')">Analiz 2 (Mali)</button>` : ''}
                         
                         <div class="dropdown">
                             <button class="${['users', 'definitions', 'permissions', 'settings', 'actionLogs'].includes(this.currentView) ? 'active' : ''}">Yönetim ▾</button>
@@ -2165,6 +2171,208 @@ class App {
             </div>`;
     }
     // ============ END LOG MODULE ============
+
+    renderAnalysis2() {
+        const cStats = {};
+        const pStats = {};
+
+        // Prepare customers
+        this.cache.customers.forEach(c => {
+            cStats[c.id] = { name: c.name, charge: 0, payment: 0, balance: 0 };
+        });
+
+        // Prepare personnel
+        this.cache.personnel.forEach(p => {
+            pStats[p.id] = { name: p.alias || p.name, revenue: 0, commission: 0, payment: 0, balance: 0 };
+        });
+
+        let totalCC = 0, totalCP = 0, totalCBal = 0;
+        let totalPRev = 0, totalPComm = 0, totalPP = 0, totalPBal = 0;
+
+        // Process Customer Ledgers
+        Object.keys(this.cache.customerLedgers).forEach(cid => {
+            if (cStats[cid]) {
+                const ledger = this.cache.customerLedgers[cid] || [];
+                ledger.forEach(l => {
+                    if (l.date >= this.ana2Start && l.date <= this.ana2End) {
+                        if (l.type === 'charge') {
+                            cStats[cid].charge += l.amount;
+                            totalCC += l.amount;
+                        } else if (l.type === 'payment') {
+                            cStats[cid].payment += l.amount;
+                            totalCP += l.amount;
+                        }
+                    }
+                });
+            }
+        });
+
+        // Calculate customer balances
+        Object.values(cStats).forEach(c => {
+            c.balance = c.charge - c.payment;
+            totalCBal += c.balance;
+        });
+
+        // Process Personnel Ledgers
+        Object.keys(this.cache.ledgers).forEach(pid => {
+            if (pStats[pid]) {
+                const ledger = this.cache.ledgers[pid] || [];
+                ledger.forEach(l => {
+                    if (l.date >= this.ana2Start && l.date <= this.ana2End) {
+                        if (l.type === 'commission') {
+                            pStats[pid].commission += l.amount;
+                            totalPComm += l.amount;
+                        } else if (l.type === 'payment') {
+                            pStats[pid].payment += l.amount;
+                            totalPP += l.amount;
+                        }
+                    }
+                });
+            }
+        });
+
+        // Process Grid Records for Personnel Revenue (Ciro) AND Customer Charges
+        Object.keys(this.cache.records)
+            .filter(d => d >= this.ana2Start && d <= this.ana2End)
+            .forEach(date => {
+                const day = this.cache.records[date] || [];
+                day.forEach(rec => {
+                    // For Personnel
+                    const pid = rec.personnelId;
+                    if (pid && pStats[pid]) {
+                        pStats[pid].revenue += (rec.amount || 0);
+                        totalPRev += (rec.amount || 0);
+                    }
+                    
+                    // For Customers
+                    const cid = rec.customerId;
+                    if (cid && cStats[cid]) {
+                        cStats[cid].charge += (rec.amount || 0);
+                        totalCC += (rec.amount || 0);
+                    } else if (rec.name) {
+                        const c = this.cache.customers.find(cx => cx.name.toLocaleLowerCase('tr-TR') === rec.name.toLocaleLowerCase('tr-TR'));
+                        if (c && cStats[c.id]) {
+                            cStats[c.id].charge += (rec.amount || 0);
+                            totalCC += (rec.amount || 0);
+                        }
+                    }
+                });
+            });
+
+        // Calculate personnel balances
+        Object.values(pStats).forEach(p => {
+            p.balance = p.commission - p.payment;
+            totalPBal += p.balance;
+        });
+
+        const html = `
+            <div class="admin-view">
+                <div class="admin-header" style="flex-wrap: wrap; gap: 15px;">
+                    <div>
+                        <h2>Analiz 2 (Mali Rapor)</h2>
+                        <p style="color:var(--text-dim); margin-top:5px;">Müşteri ve Personel Gelir/Ödeme Özetleri</p>
+                    </div>
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <button class="btn-filter" onclick="
+                            const now = new Date();
+                            app.ana2Start = app.formatDate(now);
+                            app.ana2End = app.formatDate(now);
+                            app.renderAnalysis2();
+                        ">Bugün</button>
+                        <button class="btn-filter" onclick="
+                            const now = new Date();
+                            const day = now.getDay() || 7;
+                            now.setDate(now.getDate() - day + 1);
+                            app.ana2Start = app.formatDate(now);
+                            app.ana2End = app.formatDate(new Date());
+                            app.renderAnalysis2();
+                        ">Bu Hafta</button>
+                        <button class="btn-filter" onclick="
+                            const now = new Date();
+                            app.ana2Start = app.formatDate(new Date(now.getFullYear(), now.getMonth(), 1));
+                            app.ana2End = app.formatDate(now);
+                            app.renderAnalysis2();
+                        ">Bu Ay</button>
+                        
+                        <input type="date" id="a2Start" class="input-date" value="${this.ana2Start}">
+                        <span style="color:var(--text-dim);"> - </span>
+                        <input type="date" id="a2End" class="input-date" value="${this.ana2End}">
+                        <button class="btn-primary" onclick="app.ana2Start = document.getElementById('a2Start').value; app.ana2End = document.getElementById('a2End').value; app.renderAnalysis2();">Filtrele</button>
+                    </div>
+                </div>
+
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap:20px; margin-top:20px;">
+                    
+                    <!-- Müşteriler -->
+                    <div class="excel-wrapper" style="background:var(--bg-card); padding:20px; border-radius:12px; border:1px solid var(--border-color);">
+                        <h3 style="margin-top:0; margin-bottom:15px; font-size:16px; font-family:'Outfit';">Müşteri Mali Tablosu</h3>
+                        <table class="excel-table" style="width:100%;">
+                            <thead>
+                                <tr>
+                                    <th style="text-align:left;">Müşteri Adı</th>
+                                    <th>Alınan Hizmet</th>
+                                    <th>Yapılan Tahsilat</th>
+                                    <th>Net (Kalan Borç)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${Object.values(cStats).filter(c => c.charge > 0 || c.payment > 0).sort((a,b) => b.charge - a.charge).map(c => `
+                                    <tr>
+                                        <td style="text-align:left; font-weight:bold;">${c.name}</td>
+                                        <td style="color:var(--accent-color); font-weight:bold;">${this.formatNum(c.charge)} ₺</td>
+                                        <td style="color:#10b981;">${this.formatNum(c.payment)} ₺</td>
+                                        <td style="font-weight:bold; color:${c.balance > 0 ? 'var(--danger-color)' : (c.balance < 0 ? '#10b981' : 'var(--text-main)')};">${this.formatNum(c.balance)} ₺</td>
+                                    </tr>
+                                `).join('') || '<tr><td colspan="4" style="text-align:center; padding:20px; color:var(--text-dim);">Kayıt bulunamadı.</td></tr>'}
+                                <tr style="background:rgba(255,255,255,0.05); font-weight:bold; border-top:2px solid var(--border-color);">
+                                    <td style="text-align:left;">GENEL TOPLAM</td>
+                                    <td style="color:var(--accent-color);">${this.formatNum(totalCC)} ₺</td>
+                                    <td style="color:#10b981;">${this.formatNum(totalCP)} ₺</td>
+                                    <td style="color:${totalCBal > 0 ? 'var(--danger-color)' : 'var(--text-main)'};">${this.formatNum(totalCBal)} ₺</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Personeller -->
+                    <div class="excel-wrapper" style="background:var(--bg-card); padding:20px; border-radius:12px; border:1px solid var(--border-color);">
+                        <h3 style="margin-top:0; margin-bottom:15px; font-size:16px; font-family:'Outfit';">Personel Mali Tablosu</h3>
+                        <table class="excel-table" style="width:100%;">
+                            <thead>
+                                <tr>
+                                    <th style="text-align:left;">Personel Adı</th>
+                                    <th>Getirdiği Ciro</th>
+                                    <th>Hakediş (Komisyon)</th>
+                                    <th>Ödenen (Avans)</th>
+                                    <th>Net Kalan</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${Object.values(pStats).filter(p => p.revenue > 0 || p.commission > 0 || p.payment > 0).sort((a,b) => b.revenue - a.revenue).map(p => `
+                                    <tr>
+                                        <td style="text-align:left; font-weight:bold;">${p.name}</td>
+                                        <td style="color:#3b82f6;">${this.formatNum(p.revenue)} ₺</td>
+                                        <td style="color:var(--accent-color); font-weight:bold;">${this.formatNum(p.commission)} ₺</td>
+                                        <td style="color:var(--danger-color);">${this.formatNum(p.payment)} ₺</td>
+                                        <td style="font-weight:bold; color:${p.balance > 0 ? '#10b981' : (p.balance < 0 ? 'var(--danger-color)' : 'var(--text-main)')};">${this.formatNum(p.balance)} ₺</td>
+                                    </tr>
+                                `).join('') || '<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-dim);">Kayıt bulunamadı.</td></tr>'}
+                                <tr style="background:rgba(255,255,255,0.05); font-weight:bold; border-top:2px solid var(--border-color);">
+                                    <td style="text-align:left;">GENEL TOPLAM</td>
+                                    <td style="color:#3b82f6;">${this.formatNum(totalPRev)} ₺</td>
+                                    <td style="color:var(--accent-color);">${this.formatNum(totalPComm)} ₺</td>
+                                    <td style="color:var(--danger-color);">${this.formatNum(totalPP)} ₺</td>
+                                    <td style="color:${totalPBal > 0 ? '#10b981' : 'var(--text-main)'};">${this.formatNum(totalPBal)} ₺</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                </div>
+            </div>
+        `;
+        document.getElementById('mainContent').innerHTML = html;
+    }
 
     renderFinance() {
         // Filter Transactions
