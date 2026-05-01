@@ -3389,9 +3389,22 @@ class App {
         const now = new Date();
         const currentMinutes = (now.getHours() * 60) + now.getMinutes();
 
+        // Mesai kontrolü: Açık olan vardiya/gün devam ediyor mu?
+        const isActiveDay = this.cache.activeShift === this.currentDate && !this.cache.closedDays.includes(this.currentDate);
+
         el.innerHTML = list.map((r, i) => {
             const startTimeMinutes = this.timeToMinutes(r.startTime);
-            const isTimeUp = startTimeMinutes !== -1 && currentMinutes >= startTimeMinutes;
+            
+            let adjCurrent = currentMinutes;
+            let adjStart = startTimeMinutes;
+            
+            // Eğer mesai açıksa ve saat gece 00:00 - 06:59 arasındaysa, bunları "mesainin sonu" kabul et (+24 saat)
+            if (isActiveDay) {
+                if (currentMinutes < 420) adjCurrent += 1440;
+                if (startTimeMinutes !== -1 && startTimeMinutes < 420) adjStart += 1440;
+            }
+            
+            const isTimeUp = startTimeMinutes !== -1 && adjCurrent >= adjStart;
             
             const p = r.personnelId ? this.cache.personnel.find(px => px.id == r.personnelId) : null;
             let pBadge = '';
