@@ -3825,6 +3825,7 @@ class App {
                         </div>
                         <div style="display:flex; gap:8px;">
                             <button type="button" class="btn-text" onclick="app.closeModal()">\u0130ptal</button>
+                            <button type="button" class="btn-primary" style="background:#6366f1; border:1px solid #4f46e5;" onclick="app.copyRecordAction()">📋 Kopyala</button>
                             <button type="submit" class="btn-primary">Kaydet</button>
                         </div>
                     </div>
@@ -3992,6 +3993,75 @@ class App {
             this.closeModal();
             this.renderMain();
         };
+    }
+
+    copyRecordAction() {
+        const customerName = document.getElementById('rn').value.trim().toLocaleUpperCase('tr-TR');
+        if (!customerName) return this.showToast('Lütfen bir müşteri ismi girin.', 'error');
+
+        let customerId = document.getElementById('rn_cid').value || null;
+        if (!customerId) {
+            const existing = this.cache.customers.find(c => c.name.toLocaleUpperCase('tr-TR') === customerName);
+            if (existing) {
+                customerId = existing.id;
+            } else {
+                customerId = Date.now().toString();
+                this.cache.customers.push({ id: customerId, name: customerName, phone: '', address: '', notes: '', status: 'active' });
+                this.store.set('customers', this.cache.customers);
+            }
+        }
+
+        const isWait = document.getElementById('isWaiting').checked;
+        const isNoPerson = isWait && document.getElementById('isWaitingNoPerson').checked;
+        const finalPersonnelId = isNoPerson ? null : (document.getElementById('run').value || null);
+
+        if (!isWait && !finalPersonnelId) {
+            return this.showToast('Lütfen bir personel seçiniz!', 'error');
+        }
+
+        const data = {
+            name: customerName,
+            customerId: customerId,
+            desc: document.getElementById('rd').value.toLocaleUpperCase('tr-TR'),
+            color: document.getElementById('rc').value,
+            amount: parseFloat(document.getElementById('ra').value) || 0,
+            startTime: document.getElementById('rs').value,
+            endTime: document.getElementById('re').value,
+            bank: document.getElementById('rbank').value,
+            personnelId: finalPersonnelId,
+            transferLog: [], // Copy starts with fresh log
+            _explicitNoPerson: isNoPerson,
+            user: this.user.name,
+            updatedBy: null
+        };
+
+        if (isWait) {
+            const waitRecs = this.cache.dailyWaiting[this.currentDate] || [];
+            waitRecs.push(data);
+            this.cache.dailyWaiting[this.currentDate] = waitRecs;
+            this.store.set('dailyWaiting', this.cache.dailyWaiting);
+        } else {
+            let day = this.cache.records[this.currentDate] || [];
+            const targetPersonnelRecords = day.filter(x => x.personnelId == finalPersonnelId);
+            const maxRow = targetPersonnelRecords.reduce((max, r) => Math.max(max, r.rowIndex), -1);
+            const targetIdx = maxRow + 1;
+
+            const recordData = {
+                ...data,
+                rowIndex: targetIdx,
+                customerUsername: document.getElementById('run').options[document.getElementById('run').selectedIndex].text
+            };
+            day.push(recordData);
+            this.cache.records[this.currentDate] = day;
+            this.store.set('records', this.cache.records);
+        }
+
+        // Reset times as requested
+        document.getElementById('rs').value = '';
+        document.getElementById('re').value = '';
+
+        this.showToast('Kayıt Kopyalandı ve Yeni Olarak Eklendi', 'success');
+        this.renderMain();
     }
 
     deleteCurrentRecord(pid, idx, isWaiting, waitIdx) {
