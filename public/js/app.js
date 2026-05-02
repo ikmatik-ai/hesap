@@ -4037,11 +4037,35 @@ class App {
 
         if (isWait) {
             const waitRecs = this.cache.dailyWaiting[this.currentDate] || [];
+            
+            // Duplicate check
+            const isDuplicate = waitRecs.some(x => 
+                x.name === data.name && 
+                x.amount === data.amount && 
+                x.startTime === data.startTime && 
+                x.endTime === data.endTime && 
+                x.personnelId == data.personnelId &&
+                x.desc === data.desc
+            );
+            if (isDuplicate) return this.showToast('Bu bekleyen kayıt zaten mevcut!', 'error');
+
             waitRecs.push(data);
             this.cache.dailyWaiting[this.currentDate] = waitRecs;
             this.store.set('dailyWaiting', this.cache.dailyWaiting);
         } else {
             let day = this.cache.records[this.currentDate] || [];
+            
+            // Duplicate check
+            const isDuplicate = day.some(x => 
+                x.name === data.name && 
+                x.amount === data.amount && 
+                x.startTime === data.startTime && 
+                x.endTime === data.endTime && 
+                x.personnelId == data.personnelId &&
+                x.desc === data.desc
+            );
+            if (isDuplicate) return this.showToast('Bu kayıt zaten mevcut! Lütfen saat veya verilerde değişiklik yapın.', 'error');
+
             const targetPersonnelRecords = day.filter(x => x.personnelId == finalPersonnelId);
             const maxRow = targetPersonnelRecords.reduce((max, r) => Math.max(max, r.rowIndex), -1);
             const targetIdx = maxRow + 1;
