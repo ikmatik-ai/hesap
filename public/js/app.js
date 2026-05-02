@@ -4150,7 +4150,7 @@ class App {
                         </div>
                         <div class="form-group">
                             <label>Telefon</label>
-                            <input id="pp" value="${p?.phone || ''}" placeholder="05XX XXX XX XX">
+                            <input id="pp" value="${p?.phone || ''}" placeholder="05XX XXX XX XX" required>
                         </div>
                     </div>
                     <div class="form-row">
@@ -4205,6 +4205,17 @@ class App {
         `;
         document.getElementById('pForm').onsubmit = (e) => {
             e.preventDefault();
+            const tc = document.getElementById('pt').value.trim();
+            const phone = document.getElementById('pp').value.trim();
+
+            if (!phone) return this.showToast('Lütfen telefon numarasını giriniz!', 'error');
+
+            const duplicateTC = this.cache.personnel.find(px => String(px.id) !== String(id) && px.tc && px.tc.trim() === tc);
+            if (tc && duplicateTC) return this.showToast('Bu TC Kimlik numarası ile kayıtlı bir personel zaten var!', 'error');
+
+            const duplicatePhone = this.cache.personnel.find(px => String(px.id) !== String(id) && px.phone && px.phone.trim() === phone);
+            if (phone && duplicatePhone) return this.showToast('Bu telefon numarası ile kayıtlı bir personel zaten var!', 'error');
+
             const newData = {
                 id: id || Date.now(),
                 name: document.getElementById('pn').value.toLocaleUpperCase('tr-TR'),
