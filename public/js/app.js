@@ -4284,7 +4284,7 @@ class App {
                         <div style="display:flex; gap:5px; margin-bottom:8px;">
                             <input list="allCustList" id="pCustSearch" placeholder="Müşteri ara ve ekle..." style="flex:1; font-size:12px;">
                             <datalist id="allCustList">
-                                ${this.cache.customers.map(c => `<option value="${c.name}">`).join('')}
+                                ${[...this.cache.customers].sort((a,b) => a.name.localeCompare(b.name, 'tr-TR')).map(c => `<option value="${c.name}">`).join('')}
                             </datalist>
                             <button type="button" class="btn-primary" style="padding:4px 12px; font-size:11px;" onclick="app.addBlockedCustomer()">Ekle</button>
                         </div>
