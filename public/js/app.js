@@ -3825,6 +3825,7 @@ class App {
                         <div>
                             ${rec ? `<button type="button" style="background:#fee2e2; color:#ef4444; border:1px solid #fecaca; padding:8px 16px; border-radius:8px; cursor:pointer; font-weight:600; font-size:13px;" onclick="app.deleteCurrentRecord(${pid ? "'" + pid + "'" : "null"}, ${idx !== null ? idx : "null"}, ${rec?._isWaiting ? 'true' : 'false'}, ${rec?._waitIdx !== undefined ? rec._waitIdx : 'null'})">🗑 Sil</button>` : ''}
                         </div>
+                        <div id="conflictWarning" style="color:#ef4444; font-weight:bold; font-size:12px; margin-bottom:10px; display:none; background:rgba(239,68,68,0.1); padding:8px; border-radius:6px; border:1px solid rgba(239,68,68,0.2);"></div>
                         <div style="display:flex; gap:8px;">
                             <button type="button" class="btn-text" onclick="app.closeModal()">\u0130ptal</button>
                             ${rec ? `<button type="button" class="btn-primary" style="background:#6366f1; border:1px solid #4f46e5;" onclick="app.copyRecordAction()">📋 Kopyala</button>` : ''}
@@ -3907,6 +3908,14 @@ class App {
                     user: this.user.name
                 });
                 this.logAction(`Personel Değişikliği/İptal: ${customerName} (${getPName(oldPid)} ➔ ${getPName(finalPersonnelId)}) ${tNote ? '- Not: ' + tNote : ''}`);
+            }
+
+            // Conflict Check (Hard Block)
+            if (finalPersonnelId) {
+                const pers = this.cache.personnel.find(px => String(px.id) === String(finalPersonnelId));
+                if (pers && pers.blockedCustomers && pers.blockedCustomers.includes(String(customerId))) {
+                    return this.showToast(`DİKKAT: ${pers.alias || pers.name} bu müşteri ile çalışmak istemiyor! Kayıt YAPILAMAZ.`, 'error', 6000);
+                }
             }
 
             // Bekleyenlere eklenmiyorsa personel seçimi zorunlu
@@ -3995,6 +4004,36 @@ class App {
             this.closeModal();
             this.renderMain();
         };
+
+        const checkConflict = () => {
+            const cId = document.getElementById('rn_cid').value;
+            const pId = document.getElementById('run').value;
+            const warn = document.getElementById('conflictWarning');
+            if (cId && pId) {
+                const pers = this.cache.personnel.find(p => String(p.id) === String(pId));
+                if (pers && pers.blockedCustomers && pers.blockedCustomers.includes(String(cId))) {
+                    warn.innerText = `🚫 BU PERSONEL BU MÜŞTERİ İLE ÇALIŞAMAZ! (Kısıtlama Mevcut)`;
+                    warn.style.display = 'block';
+                } else {
+                    warn.style.display = 'none';
+                }
+            } else {
+                warn.style.display = 'none';
+            }
+        };
+
+        const runIn = document.getElementById('run');
+        if (runIn) runIn.onchange = checkConflict;
+        
+        const rnIn = document.getElementById('rn');
+        if (rnIn) {
+            const oldInput = rnIn.oninput;
+            rnIn.addEventListener('input', () => {
+                setTimeout(checkConflict, 100); // Wait for CID update
+            });
+        }
+        
+        checkConflict(); // Initial check
     }
 
     copyRecordAction() {
@@ -4112,6 +4151,48 @@ class App {
         this.showToast('Kay\u0131t ba\u015far\u0131yla silindi.', 'success');
     }
 
+    addBlockedCustomer() {
+        const searchInput = document.getElementById('pCustSearch');
+        const val = searchInput.value.trim();
+        if (!val) return;
+        
+        const cust = this.cache.customers.find(c => c.name.toLocaleUpperCase('tr-TR') === val.toLocaleUpperCase('tr-TR'));
+        if (!cust) return this.showToast('Müşteri bulunamadı!', 'error');
+        
+        const hiddenInput = document.getElementById('pBlockedCustIds');
+        let currentIds = hiddenInput.value ? hiddenInput.value.split(',').filter(x => x) : [];
+        
+        if (currentIds.includes(String(cust.id))) return this.showToast('Bu müşteri zaten listede!', 'error');
+        
+        currentIds.push(String(cust.id));
+        hiddenInput.value = currentIds.join(',');
+        searchInput.value = '';
+        this.renderBlockedCustTags(currentIds);
+    }
+
+    removeBlockedCustomer(id) {
+        const hiddenInput = document.getElementById('pBlockedCustIds');
+        let currentIds = hiddenInput.value.split(',').filter(x => x);
+        currentIds = currentIds.filter(cid => cid !== String(id));
+        hiddenInput.value = currentIds.join(',');
+        this.renderBlockedCustTags(currentIds);
+    }
+
+    renderBlockedCustTags(ids) {
+        const container = document.getElementById('blockedCustTags');
+        if (!container) return;
+        container.innerHTML = ids.filter(id => id).map(id => {
+            const c = this.cache.customers.find(cx => String(cx.id) === String(id));
+            if (!c) return '';
+            return `
+                <div style="background:var(--primary-color); color:white; padding:4px 8px; border-radius:4px; font-size:10px; display:flex; align-items:center; gap:5px;">
+                    ${c.name}
+                    <span style="cursor:pointer; font-weight:bold; color:#fff;" onclick="app.removeBlockedCustomer('${id}')">×</span>
+                </div>
+            `;
+        }).join('') || '<span style="color:var(--text-dim); font-size:11px;">Müşteri seçilmedi...</span>';
+    }
+
     quickAddCustomer() {
         this.showInputModal('Yeni M\u00fc\u015fteri Ad\u0131', '', (name) => {
             if (!name.trim()) return;
@@ -4198,6 +4279,21 @@ class App {
                             `).join('')}
                         </div>
                     </div>
+                    <div style="margin-top:10px; padding:12px; background:rgba(99, 102, 241, 0.05); border:1px solid rgba(99, 102, 241, 0.2); border-radius:8px;">
+                        <label style="display:block; color:var(--primary-color); font-weight:bold; margin-bottom:8px;">🤝 Çalışmak İstemediği Müşteriler</label>
+                        <div style="display:flex; gap:5px; margin-bottom:8px;">
+                            <input list="allCustList" id="pCustSearch" placeholder="Müşteri ara ve ekle..." style="flex:1; font-size:12px;">
+                            <datalist id="allCustList">
+                                ${this.cache.customers.map(c => `<option value="${c.name}">`).join('')}
+                            </datalist>
+                            <button type="button" class="btn-primary" style="padding:4px 12px; font-size:11px;" onclick="app.addBlockedCustomer()">Ekle</button>
+                        </div>
+                        <div id="blockedCustTags" style="display:flex; flex-wrap:wrap; gap:5px; background:var(--bg-nav); padding:8px; border-radius:6px; min-height:35px; border:1px dashed var(--border-color);">
+                            <!-- Tags -->
+                        </div>
+                        <input type="hidden" id="pBlockedCustIds" value="${(p?.blockedCustomers || []).join(',')}">
+                    </div>
+
                     <div style="margin-top:10px; padding:12px; background:rgba(239, 68, 68, 0.05); border:1px solid rgba(239, 68, 68, 0.2); border-radius:8px;">
                         <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:#ef4444; font-weight:bold; margin-bottom:8px;">
                             <input type="checkbox" id="pBlacklist" ${p?.isBlacklisted ? 'checked' : ''} style="width:18px; height:18px;"> 🚫 KARA LİSTEYE EKLE
@@ -4262,6 +4358,7 @@ class App {
                 status: newStatus,
                 isBlacklisted: isB,
                 blacklistNote: bNote,
+                blockedCustomers: document.getElementById('pBlockedCustIds').value ? document.getElementById('pBlockedCustIds').value.split(',').filter(x => x) : [],
                 weeklyLeaves: Array.from(document.querySelectorAll('input[name="adminWeeklyLeave"]:checked')).map(cb => cb.value)
             };
             
@@ -4272,10 +4369,15 @@ class App {
                 this.cache.personnel.push(newData);
             }
             this.store.set('personnel', this.cache.personnel);
-            this.logAction(`${id ? 'Personel Güncellendi' : 'Yeni Personel Eklendi'}: ${newData.name}`);
-            this.closeModal();
             this.renderPersonnel();
+            
+            // Render initial blocked tags for UI persistence
+            setTimeout(() => this.renderBlockedCustTags(newData.blockedCustomers || []), 100);
+            this.closeModal();
         };
+
+        // Initial render of blocked customers tags
+        setTimeout(() => this.renderBlockedCustTags(p?.blockedCustomers || []), 100);
     }
 
 
