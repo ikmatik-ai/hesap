@@ -1066,7 +1066,9 @@ class App {
                 .sort((a, b) => (a.alias || a.name).localeCompare(b.alias || b.name, 'tr-TR'))
                 .map(p => `
                                 <tr>
-                                    <td style="text-align:left; padding-left:15px; font-weight:500;">${p.name}</td>
+                                    <td style="text-align:left; padding-left:15px; font-weight:500;">
+                                        ${p.name} ${p.isBlacklisted ? '<span style="background:#ef4444; color:white; font-size:9px; padding:2px 4px; border-radius:4px; margin-left:5px; font-weight:bold;">🚫 KARA LİSTE</span>' : ''}
+                                    </td>
                                     <td style="color:var(--primary-color); font-weight:600;">${p.alias || '-'}</td>
                                     <td style="font-weight:600; color:var(--accent-color);">
                                         ${(() => {
@@ -4196,6 +4198,12 @@ class App {
                             `).join('')}
                         </div>
                     </div>
+                    <div style="margin-top:10px; padding:12px; background:rgba(239, 68, 68, 0.05); border:1px solid rgba(239, 68, 68, 0.2); border-radius:8px;">
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:#ef4444; font-weight:bold; margin-bottom:8px;">
+                            <input type="checkbox" id="pBlacklist" ${p?.isBlacklisted ? 'checked' : ''} style="width:18px; height:18px;"> 🚫 KARA LİSTEYE EKLE
+                        </label>
+                        <textarea id="pBlacklistNote" placeholder="Kara listeye alınma nedeni..." style="width:100%; border-radius:6px; padding:8px; border:1px solid var(--border-color); background:var(--bg-input); color:white; font-size:12px;">${p?.blacklistNote || ''}</textarea>
+                    </div>
                     <div class="modal-actions">
                         <button type="button" class="btn-text" onclick="app.closeModal()">İptal</button>
                         <button type="submit" class="btn-primary">Kaydet</button>
@@ -4211,10 +4219,33 @@ class App {
             if (!phone) return this.showToast('Lütfen telefon numarasını giriniz!', 'error');
 
             const duplicateTC = this.cache.personnel.find(px => String(px.id) !== String(id) && px.tc && px.tc.trim() === tc);
-            if (tc && duplicateTC) return this.showToast('Bu TC Kimlik numarası ile kayıtlı bir personel zaten var!', 'error');
+            if (tc && duplicateTC) {
+                if (duplicateTC.isBlacklisted) {
+                    return this.showToast(`DİKKAT: Bu TC No'ya sahip personel KARA LİSTEDEDİR! Not: ${duplicateTC.blacklistNote || 'Belirtilmemiş'}`, 'error', 7000);
+                }
+                return this.showToast('Bu TC Kimlik numarası ile kayıtlı bir personel zaten var!', 'error');
+            }
 
             const duplicatePhone = this.cache.personnel.find(px => String(px.id) !== String(id) && px.phone && px.phone.trim() === phone);
-            if (phone && duplicatePhone) return this.showToast('Bu telefon numarası ile kayıtlı bir personel zaten var!', 'error');
+            if (phone && duplicatePhone) {
+                if (duplicatePhone.isBlacklisted) {
+                    return this.showToast(`DİKKAT: Bu telefona sahip personel KARA LİSTEDEDİR! Not: ${duplicatePhone.blacklistNote || 'Belirtilmemiş'}`, 'error', 7000);
+                }
+                return this.showToast('Bu telefon numarası ile kayıtlı bir personel zaten var!', 'error');
+            }
+
+            const isB = document.getElementById('pBlacklist').checked;
+            const bNote = document.getElementById('pBlacklistNote').value.trim();
+            const newStatus = document.getElementById('ps').value;
+
+            // Admin-only activation for blacklisted personnel
+            if (isB && newStatus === 'active') {
+                if (this.user.role !== 'admin') {
+                    return this.showToast('Kara listedeki personeli sadece admin aktif edebilir!', 'error');
+                } else {
+                    if (!confirm('Bu personel kara listededir. Yine de aktif yapmak istediğinize emin misiniz?')) return;
+                }
+            }
 
             const newData = {
                 id: id || Date.now(),
@@ -4228,7 +4259,9 @@ class App {
                 shiftStart2: document.getElementById('shS2').value,
                 shiftEnd2: document.getElementById('shE2').value,
                 color: p?.color || '#ffffff',
-                status: document.getElementById('ps').value,
+                status: newStatus,
+                isBlacklisted: isB,
+                blacklistNote: bNote,
                 weeklyLeaves: Array.from(document.querySelectorAll('input[name="adminWeeklyLeave"]:checked')).map(cb => cb.value)
             };
             
