@@ -41,6 +41,7 @@ class App {
                 }
             }, 10000);
             this.user = null;
+            this._shiftChecked = false; // Flag to show shift warnings once per login
             this.pFilter = 'active'; // Default personnel filter
             this.cFilter = 'active'; // Default customer filter
             this.customersPage = 1; // Pagination current page
@@ -254,7 +255,7 @@ class App {
         return mid.split('').reverse().join('') + '-SYS77';
     }
 
-    showToast(msg, type = 'info') {
+    showToast(msg, type = 'info', duration = 3000) {
         let container = document.querySelector('.toast-container');
         if (!container) {
             container = document.createElement('div');
@@ -270,7 +271,7 @@ class App {
             t.style.transform = 'translateX(100%)';
             t.style.transition = '0.3s';
             setTimeout(() => t.remove(), 300);
-        }, 3000);
+        }, duration);
     }
 
     renderLicenseScreen(mid) {
@@ -421,6 +422,7 @@ class App {
 
                 if (user) {
                     this.user = user;
+                    this._shiftChecked = false; // Reset check on fresh login
                     sessionStorage.setItem('ht_session', JSON.stringify(user));
                     this.showView('main');
                 } else {
@@ -438,7 +440,13 @@ class App {
         }
         this.currentView = view;
         this.renderBase();
-        if (view === 'main') this.renderMain();
+        if (view === 'main') {
+            this.renderMain();
+            if (!this._shiftChecked) {
+                this.checkShiftStatus();
+                this._shiftChecked = true;
+            }
+        }
         else if (view === 'personnel') this.renderPersonnel();
         else if (view === 'settings') this.renderSettings();
         else if (view === 'finance') this.renderFinance();
@@ -3071,6 +3079,21 @@ class App {
     }
 
     // --- HELPERS ---
+    checkShiftStatus() {
+        const activeShift = this.cache.activeShift;
+        const today = this.today;
+
+        if (activeShift) {
+            if (activeShift < today) {
+                this.showToast('\u26a0\ufe0f G\u00fcn\u00fc kapatmay\u0131 unuttunuz! L\u00fctfen \u00f6nceki g\u00fcn\u00fc kapat\u0131p bug\u00fcn\u00fc ba\u015flat\u0131n.', 'error', 15000);
+            }
+        } else {
+            if (!this.cache.closedDays.includes(today)) {
+                this.showToast('\u26a0\ufe0f G\u00fcn\u00fc a\u00e7mad\u0131n\u0131z! L\u00fctfen \u00d6n Panelden "G\u00fcn\u00fc Ba\u015flat" butonuna t\u0131klay\u0131n.', 'warning', 15000);
+            }
+        }
+    }
+
     changeDate(n) { const d = new Date(this.currentDate); d.setDate(d.getDate() + n); this.currentDate = this.formatDate(d); this.renderMain(); }
     hexToRgb(h) { const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(h); return r ? `${parseInt(r[1], 16)},${parseInt(r[2], 16)},${parseInt(r[3], 16)}` : '79,70,229'; }
     startDay() { 
