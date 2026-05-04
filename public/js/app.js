@@ -3829,7 +3829,7 @@ class App {
                         <div style="display:flex; gap:8px;">
                             <button type="button" class="btn-text" onclick="app.closeModal()">\u0130ptal</button>
                             ${rec ? `<button type="button" class="btn-primary" style="background:#6366f1; border:1px solid #4f46e5;" onclick="app.copyRecordAction()">📋 Kopyala</button>` : ''}
-                            <button type="submit" class="btn-primary">Kaydet</button>
+                            <button type="submit" class="btn-primary" style="background:#ef4444; border:1px solid #dc2626;">Kaydet</button>
                         </div>
                     </div>
                 </form>
