@@ -1577,22 +1577,22 @@ class App {
                     const pName = this.cache.personnel.find(p => String(p.id) === String(pid))?.name || 'Bilinmeyen';
 
                     // Apply filters
-                    if (this.rPid !== 'all' && pid !== this.rPid) return;
-                    if (this.rCid !== 'all' && cid !== this.rCid) return;
+                    if (this.rPid !== 'all' && String(pid) !== String(this.rPid)) return;
+                    if (this.rCid !== 'all' && String(cid) !== String(this.rCid)) return;
 
                     stats.push({
                         date: date,
                         pId: pid,
                         pName: pName,
                         cId: cid,
-                        cName: cid ? (this.cache.customers.find(c => c.id === cid)?.name || cName) : cName,
+                        cName: cid ? (this.cache.customers.find(c => String(c.id) === String(cid))?.name || cName) : cName,
                         amount: rec.amount,
                         bank: rec.bank || '-',
                         count: 1 // Each record in daily grid is 1 service
                     });
 
-                    uniquePersonnel.add(pid);
-                    if (cid) uniqueCustomers.add(cid); else uniqueCustomers.add(cName);
+                    uniquePersonnel.add(String(pid));
+                    if (cid) uniqueCustomers.add(String(cid)); else uniqueCustomers.add(cName);
                     totalAmount += rec.amount;
                     totalServices += 1;
                 });
@@ -1630,7 +1630,7 @@ class App {
                             <div class="search-input-wrapper">
                                 <input type="text" class="search-input" id="pid_search" 
                                     placeholder="Personel ara..." 
-                                    value="${this.rPid === 'all' ? 'T\u00fcm Personeller' : (this.cache.personnel.find(p => p.id === this.rPid)?.name || '')}"
+                                    value="${this.rPid === 'all' ? 'T\u00fcm Personeller' : (this.cache.personnel.find(p => String(p.id) === String(this.rPid))?.name || '')}"
                                     onfocus="this.select(); document.getElementById('pid_list').classList.add('show')"
                                     oninput="app.filterSearchableList('pid_list', this.value)"
                                 >
@@ -1640,7 +1640,7 @@ class App {
                                 ${reportPersonnel.map(p => {
                                     const dName = p.alias || p.name;
                                     return `
-                                    <div class="select-option ${this.rPid === p.id ? 'selected' : ''}" 
+                                    <div class="select-option ${String(this.rPid) === String(p.id) ? 'selected' : ''}" 
                                         onclick="app.selectSearchableOption('rp_rep', '${p.id}', '${dName}', 'pid_search', 'pid_list')">
                                         ${dName}
                                     </div>
@@ -1655,7 +1655,7 @@ class App {
                             <div class="search-input-wrapper">
                                 <input type="text" class="search-input" id="cid_search" 
                                     placeholder="M\u00fc\u015fteri ara..." 
-                                    value="${this.rCid === 'all' ? 'T\u00fcm M\u00fc\u015fteriler' : (this.cache.customers.find(c => c.id === this.rCid)?.name || '')}"
+                                    value="${this.rCid === 'all' ? 'T\u00fcm M\u00fc\u015fteriler' : (this.cache.customers.find(c => String(c.id) === String(this.rCid))?.name || '')}"
                                     onfocus="this.select(); document.getElementById('cid_list').classList.add('show')"
                                     oninput="app.filterSearchableList('cid_list', this.value)"
                                 >
@@ -1663,7 +1663,7 @@ class App {
                             <div class="select-dropdown" id="cid_list">
                                 <div class="select-option ${this.rCid === 'all' ? 'selected' : ''}" onclick="app.selectSearchableOption('rc_rep', 'all', 'T\u00fcm M\u00fc\u015fteriler', 'cid_search', 'cid_list')">T\u00fcm M\u00fc\u015fteriler</div>
                                 ${this.cache.customers.filter(c => c.status === 'active').sort((a,b)=>(a.name||'').localeCompare((b.name||''), 'tr-TR', {sensitivity: 'base'})).map(c => `
-                                    <div class="select-option ${this.rCid === c.id ? 'selected' : ''}" 
+                                    <div class="select-option ${String(this.rCid) === String(c.id) ? 'selected' : ''}" 
                                         onclick="app.selectSearchableOption('rc_rep', '${c.id}', '${c.name}', 'cid_search', 'cid_list')">
                                         ${c.name}
                                     </div>
@@ -1733,8 +1733,8 @@ class App {
                 </div>
 
                 ${this.rCid !== 'all' && this.rPid === 'all' ? (() => {
-                    const servedPidSet = new Set(stats.map(s => s.pId));
-                    const notServed = this.cache.personnel.filter(p => !servedPidSet.has(p.id) && p.status !== 'pasif').sort((a,b) => a.name.localeCompare(b.name, 'tr-TR'));
+                    const servedPidSet = new Set(stats.map(s => String(s.pId)));
+                    const notServed = this.cache.personnel.filter(p => !servedPidSet.has(String(p.id)) && p.status !== 'pasif').sort((a,b) => a.name.localeCompare(b.name, 'tr-TR'));
                     if (notServed.length === 0) return '';
                     return `
                         <div style="margin-top:20px; padding:15px; background:rgba(239, 68, 68, 0.05); border:1px solid rgba(239, 68, 68, 0.2); border-radius:10px;">
@@ -3012,7 +3012,7 @@ class App {
 
     showUserModal(id = null) {
         const users = this.store.get('users') || [];
-        const u = id ? users.find(x => x.id === id) : null;
+        const u = id ? users.find(x => String(x.id) === String(id)) : null;
         const ov = document.getElementById('modalOverlay');
         ov.classList.remove('hidden');
         ov.innerHTML = `
@@ -3056,7 +3056,7 @@ class App {
         };
 
         if (id) {
-            users = users.map(x => x.id === id ? data : x);
+            users = users.map(x => String(x.id) === String(id) ? data : x);
         } else {
             users.push(data);
         }
@@ -3747,7 +3747,7 @@ class App {
                                 </div>
                                 <div class="select-dropdown" id="rn_list">
                                     ${this.cache.customers.filter(c => c.status === 'active').sort((a,b)=>(a.name||'').localeCompare((b.name||''), 'tr-TR', {sensitivity: 'base'})).map(c => `
-                                        <div class="select-option ${rec?.customerId === c.id ? 'selected' : ''}" 
+                                        <div class="select-option ${String(rec?.customerId) === String(c.id) ? 'selected' : ''}" 
                                             onclick="app.selectSearchableOptionMain('${c.id}', '${c.name.replace(/'/g, "\\'")}', 'rn', 'rn_list')">
                                             ${c.name}
                                         </div>
