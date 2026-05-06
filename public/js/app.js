@@ -4057,6 +4057,14 @@ class App {
         }
         
         checkConflict(); // Initial check
+        
+        // Auto-focus customer input for faster data entry
+        setTimeout(() => {
+            if (rnIn) {
+                rnIn.focus();
+                rnIn.select();
+            }
+        }, 150);
     }
 
     copyRecordAction() {
