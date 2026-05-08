@@ -42,6 +42,7 @@ class App {
             }, 10000);
             this.user = null;
             this._shiftChecked = false; // Flag to show shift warnings once per login
+            this._recordModalOpened = false; // Flag to focus customer input only on first open
             this.pFilter = 'active'; // Default personnel filter
             this.cFilter = 'active'; // Default customer filter
             this.customersPage = 1; // Pagination current page
@@ -4058,13 +4059,16 @@ class App {
         
         checkConflict(); // Initial check
         
-        // Auto-focus customer input for faster data entry
-        setTimeout(() => {
-            if (rnIn) {
-                rnIn.focus();
-                rnIn.select();
-            }
-        }, 150);
+        // Smart Focus: Auto-focus customer input ONLY on the first time the modal is opened
+        if (!this._recordModalOpened) {
+            setTimeout(() => {
+                if (rnIn) {
+                    rnIn.focus();
+                    rnIn.select();
+                }
+            }, 150);
+            this._recordModalOpened = true;
+        }
     }
 
     copyRecordAction() {
